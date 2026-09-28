@@ -132,7 +132,7 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set((try? JSONEncoder().encode(micPriority)) ?? Data(), forKey: "micPriority") }
     }
 
-    /// How Apple's on-device model rewrites dictations (Literal: not at all).
+    /// How Apple's on-device model rewrites dictations (Original: not at all).
     @Published var aiStyle: AIStyle { didSet { defaults.set(aiStyle.rawValue, forKey: "aiStyle") } }
     /// Per-app and per-website overrides.
     @Published var appRules: [AppRule] { didSet { defaults.set((try? JSONEncoder().encode(appRules)) ?? Data(), forKey: "appRules") } }

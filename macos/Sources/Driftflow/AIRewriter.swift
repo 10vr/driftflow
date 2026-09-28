@@ -19,7 +19,7 @@ enum AIStyle: String, CaseIterable, Identifiable, Codable {
 
     var label: String {
         switch self {
-        case .literal: "Literal"
+        case .literal: "Original" // stored as "literal" in settings and app rules
         case .clean: "Clean"
         case .professional: "Professional"
         case .casual: "Casual"
