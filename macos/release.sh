@@ -10,7 +10,9 @@
 #   ./release.sh 0.2.2 --local                  only build dist/Driftflow-0.2.2-macOS.zip
 #
 # The tag goes on the commit you're on, which must be pushed and clean. If the tag already exists
-# (you pushed it yourself), its message is used as the notes.
+# (you pushed it yourself), its message is used as the notes. In the notes, start a line with
+# "Mac:" or "Windows:" when it's about one app: each updater shows only its own lines (and lines
+# without a prefix), and a platform with no lines isn't offered the update.
 #
 # Signing: with a "Developer ID Application" certificate in your keychain the app is signed with it
 # and notarized by Apple (store the notary login once with
@@ -103,7 +105,16 @@ gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
     || true
 gh release upload "$TAG" "$ZIP" -R "$REPO" --clobber
 
-python3 - "$FEED" "$VERSION" "$BUILD_NUMBER" "$URL" "$SIGNATURE" "$NOTES" <<'PY'
+# The Mac updater shows only what changed for Mac ("Mac:" lines and lines for both). A release
+# with nothing for Mac still gets its download on the page, but isn't offered as an update.
+MAC_NOTES="$(../scripts/platform-notes.sh mac "$NOTES")"
+if [ -z "$MAC_NOTES" ]; then
+    echo "Added the Mac download to https://github.com/$REPO/releases/tag/$TAG."
+    echo "The notes have nothing for Mac, so Macs aren't offered this version as an update."
+    exit 0
+fi
+
+python3 - "$FEED" "$VERSION" "$BUILD_NUMBER" "$URL" "$SIGNATURE" "$MAC_NOTES" <<'PY'
 import sys, html, email.utils, pathlib
 feed, version, build, url, signature, notes = sys.argv[1:]
 path = pathlib.Path(feed)
