@@ -607,7 +607,7 @@ struct ModelStep: View {
             Text(!Platform.hasAppleSpeech
                  ? "\(settings.accuracyModel.displayName) understands every accent of \(languageName) with one model, so there's no accent to choose."
                  : usesParakeet
-                 ? "The accent doesn't change the final text: \(settings.accuracyModel.displayName) understands every English accent with one model. It only tunes Apple's live preview. Leave it on “Match my Mac” unless the preview struggles."
+                 ? "The accent doesn't change the final text: \(settings.accuracyModel.displayName) understands every English accent with one model. It only tunes Apple Speech, used for languages \(settings.accuracyModel.displayName) doesn't cover. Leave it on “Match my Mac”."
                  : "The accent picks Apple's regional model for \(languageName). Choose the one closest to how you speak.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

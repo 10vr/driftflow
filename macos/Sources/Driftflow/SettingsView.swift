@@ -322,7 +322,7 @@ private struct ModelsPane: View {
                 Text(!Platform.hasAppleSpeech
                      ? "\(settings.accuracyModel.displayName) understands every accent of a language with one model. Languages other than English need Parakeet TDT v3."
                      : settings.accuracyModel.supports(language: languageCode) && settings.accuracyModel != .apple
-                     ? "\(settings.accuracyModel.displayName) understands all English accents with one model; the accent only tunes Apple's live preview."
+                     ? "\(settings.accuracyModel.displayName) understands all English accents with one model; the accent only tunes Apple Speech (other languages, or Apple's live preview under Advanced)."
                      : "The accent picks Apple's regional model for this language.")
                     .foregroundStyle(.secondary)
             }
@@ -348,15 +348,15 @@ private struct ModelsPane: View {
 
             if Platform.hasAppleSpeech {
             Section {
-                DisclosureGroup("Advanced") {
-                    Picker("Live preview", selection: $settings.livePreview) {
-                        Text("Apple Speech").tag(LivePreviewSource.apple)
-                        Text("Same as final-text model").tag(LivePreviewSource.finalModel)
-                    }
-                    Text("Apple Speech: continuous, light on battery (about 1–2% of one CPU core while you talk); the text may change slightly when the final model takes over. Same as final-text model: the preview is exactly what gets typed, updated about 3 times a second (about 13% of one core while you talk). Languages the final model doesn't cover always preview with Apple Speech.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                Picker("Live preview", selection: $settings.livePreview) {
+                    Text("Same as final-text model").tag(LivePreviewSource.finalModel)
+                    Text("Apple Speech").tag(LivePreviewSource.apple)
                 }
+            } header: {
+                Text("Advanced")
+            } footer: {
+                Text("Same as final-text model (default): the preview comes from the NVIDIA model that writes the final text, so what you see is exactly what gets typed. It updates about 3 times a second and uses about 13% of one CPU core while you talk. Apple Speech: lighter on battery (about 1–2%), but the text may change slightly when the final model takes over. Languages the final model doesn't cover always preview with Apple Speech.")
+                    .foregroundStyle(.secondary)
             }
             }
         }
@@ -550,17 +550,17 @@ private struct OutputPane: View {
             }
 
             Section {
-                DisclosureGroup("Advanced") {
-                    Picker("Method", selection: $settings.insertionMethod) {
-                        ForEach(InsertionMethod.allCases) { Text($0.label).tag($0) }
-                    }
-                    .disabled(!settings.autoPaste)
-                    Toggle("Restore the clipboard afterwards", isOn: $settings.restoreClipboard)
-                        .disabled(!settings.autoPaste || settings.insertionMethod == .type)
-                    Text("Paste restores your clipboard the moment the app has read the text. Use “Type characters” for apps that mangle pastes.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                Picker("Method", selection: $settings.insertionMethod) {
+                    ForEach(InsertionMethod.allCases) { Text($0.label).tag($0) }
                 }
+                .disabled(!settings.autoPaste)
+                Toggle("Restore the clipboard afterwards", isOn: $settings.restoreClipboard)
+                    .disabled(!settings.autoPaste || settings.insertionMethod == .type)
+            } header: {
+                Text("Advanced")
+            } footer: {
+                Text("Paste restores your clipboard the moment the app has read the text. Use “Type characters” for apps that mangle pastes.")
+                    .foregroundStyle(.secondary)
             }
         }
     }

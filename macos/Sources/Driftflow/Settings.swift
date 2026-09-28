@@ -172,7 +172,7 @@ final class AppSettings: ObservableObject {
             "historyRetention": HistoryRetention.month.rawValue,
             "soundStyle": SoundStyle.bells.rawValue,
             "accuracyModel": AccuracyModel.parakeetUnified.rawValue,
-            "livePreview": LivePreviewSource.apple.rawValue,
+            "livePreview": LivePreviewSource.finalModel.rawValue,
             "hudPosition": HUDPosition.bottom.rawValue,
             "replacements": "",
             "playSounds": true,
@@ -224,7 +224,13 @@ final class AppSettings: ObservableObject {
         smartSpacing = defaults.bool(forKey: "smartSpacing")
         removeFillers = defaults.bool(forKey: "removeFillers")
         spokenCommands = defaults.bool(forKey: "spokenCommands")
-        livePreview = LivePreviewSource(rawValue: defaults.string(forKey: "livePreview") ?? "") ?? .apple
+        // The preview now comes from the same NVIDIA model as the final text by default: switch
+        // copies that kept the old Apple Speech default over once.
+        if !defaults.bool(forKey: "livePreviewParakeetDefault") {
+            defaults.set(true, forKey: "livePreviewParakeetDefault")
+            defaults.set(LivePreviewSource.finalModel.rawValue, forKey: "livePreview")
+        }
+        livePreview = LivePreviewSource(rawValue: defaults.string(forKey: "livePreview") ?? "") ?? .finalModel
         accuracyModel = AccuracyModel(rawValue: defaults.string(forKey: "accuracyModel") ?? "") ?? .parakeetUnified
         soundStyle = SoundStyle(rawValue: defaults.string(forKey: "soundStyle") ?? "") ?? .bells
         historyRetention = HistoryRetention(rawValue: defaults.string(forKey: "historyRetention") ?? "") ?? .month

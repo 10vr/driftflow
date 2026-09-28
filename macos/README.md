@@ -25,7 +25,7 @@ Tested on 300 real LibriSpeech recordings (half clean, half noisy), with numbers
 | Parakeet TDT v2 | 2.89% | 2.33–3.50 | 3.13% | 47 ms | Fastest by a hair (option) |
 | Parakeet TDT v3 | 2.96% | 2.44–3.52 | 3.49% | 46 ms | Multilingual; weaker English |
 | Parakeet Ultra | 2.98% | 2.47–3.55 | 3.46% | 47 ms | |
-| Apple SpeechTranscriber | 3.30% | 2.75–3.91 | 4.36% | 98 ms | Used for live preview and fallback |
+| Apple SpeechTranscriber | 3.30% | 2.75–3.91 | 4.36% | 98 ms | Fallback, other languages, optional live preview |
 | Nemotron Streaming 0.6B | 3.86% | 3.22–4.59 | 5.11% | 92 ms | Slowest first text (1.3 s) |
 
 ## Design compared with Handy and FluidVoice
@@ -61,7 +61,7 @@ The first launch opens a setup window for Microphone and Accessibility access, t
 - **Hold Right ⌘, speak, release:** the text is inserted (push-to-talk).
 - **Tap Right ⌘** (under 0.3 s): hands-free mode; tap again to finish. **Esc** cancels.
 - **Right ⌘ + C, V, a click, etc.:** recognized as a shortcut and cancelled silently. The sound and overlay wait 150 ms, so shortcuts never flash them.
-- **Models** (Settings › Models): choose the final-text model (Parakeet Unified, TDT v2, TDT v3 or Apple Speech). Each card shows measured errors and speed, plus Download, Use and Delete. Apple Speech always drives the live preview.
+- **Models** (Settings › Models): choose the final-text model (Parakeet Unified, TDT v2, TDT v3 or Apple Speech). Each card shows measured errors and speed, plus Download, Use and Delete. The live preview comes from the same model by default (Settings › Models › Advanced can switch it to Apple Speech, lighter on battery).
 - **Menu bar:** recent dictations (click to copy) and the latency of the last dictation.
 - **Settings:**
   - trigger key: Right ⌥, Right ⌘, Fn, ⌥Space or ⌃⌥Space
@@ -178,7 +178,7 @@ HotKeyMonitor (left/right-aware modifiers or a Carbon hot key)
   → AudioCapture (a single AVAudioEngine, a 0.5 s pre-roll ring, device-change recovery, vDSP level meter)
   → AudioPipe (buffers audio until the session is ready, so nothing is lost while the model spins up)
   → DictationSession
-      ├─ Apple SpeechAnalyzer: streaming live preview
+      ├─ Apple SpeechAnalyzer: pause detection, fallback text, and the live preview if chosen
       ├─ EarlyPreview: Parakeet on the first 0.4–4 s, so live text appears about 2× sooner
       └─ SegmentedFinalizer: Parakeet over pause-bounded segments of 6 s or more, run in the background
   → release: Parakeet on the remaining tail, joined to the finished segments (Apple's text as fallback)
