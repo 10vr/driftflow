@@ -13,7 +13,11 @@ esac
 printf '%s\n' "${2:-}" | while IFS= read -r line; do
     case "$line" in
         "$DROP:"*) ;;
-        "$KEEP:"*) line="${line#"$KEEP:"}"; printf '%s\n' "${line# }" ;;
+        "$KEEP:"*)
+            line="${line#"$KEEP:"}"
+            line="${line# }"
+            # Capitalise the start again ("Windows: fixes…" → "Fixes…").
+            printf '%s%s\n' "$(printf '%s' "${line:0:1}" | tr '[:lower:]' '[:upper:]')" "${line:1}" ;;
         *[![:space:]]*) printf '%s\n' "$line" ;;
     esac
 done
