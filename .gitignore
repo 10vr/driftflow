@@ -6,3 +6,4 @@ build.noindex/
 dist/
 # macOS
 .DS_Store
+.venv-dmg/

@@ -10,7 +10,7 @@ ${NOTES:+$NOTES
 
 }## Install
 
-**Mac** (Apple Silicon, macOS 15 or later): download **Driftflow-$VERSION-macOS.zip**, unzip it and drag Driftflow into Applications. The first time, right-click Driftflow › Open, because it isn't signed with an Apple Developer ID yet.
+**Mac** (Apple Silicon, macOS 15 or later): download **Driftflow-$VERSION-macOS.dmg**, open it and drag Driftflow onto Applications. The first time, right-click Driftflow in Applications › Open, because it isn't signed with an Apple Developer ID yet. (The .zip is what installed copies update from.)
 
 **Windows** (10 or 11, 64-bit): download **Driftflow-$VERSION-Windows-x64-setup.exe** and run it. If Windows says "Windows protected your PC", click More info › Run anyway.
 

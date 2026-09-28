@@ -52,10 +52,10 @@ Get the latest version from the **[Releases page](https://github.com/10vr/driftf
 
 | Platform | Requirements | Download |
 |---|---|---|
-| **Mac** | Apple Silicon (M1 or later), macOS 15 or later. AI Styles need macOS 26 with Apple Intelligence. | `Driftflow-<version>-macOS.zip` |
+| **Mac** | Apple Silicon (M1 or later), macOS 15 or later. AI Styles need macOS 26 with Apple Intelligence. | `Driftflow-<version>-macOS.dmg` |
 | **Windows** | Windows 10 or 11, 64-bit. Uses the graphics card when it can (Vulkan) and the processor otherwise. | `Driftflow-<version>-Windows-x64-setup.exe` |
 
-**Mac:** unzip the download and drag Driftflow into Applications. The first time you open it, right-click Driftflow and choose **Open**, because the app isn't signed with an Apple Developer ID yet.
+**Mac:** open the disk image and drag Driftflow onto the Applications folder. The first time you open it, right-click Driftflow in Applications and choose **Open**, because the app isn't signed with an Apple Developer ID yet.
 
 **Windows:** run the installer. If Windows shows "Windows protected your PC", click **More info › Run anyway**, because the installer isn't code-signed yet.
 

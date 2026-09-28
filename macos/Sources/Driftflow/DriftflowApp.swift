@@ -28,7 +28,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .removeDuplicates()
             .sink { Self.applyDockPresence($0) }
 
-        if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) { LoginItem.applyDefaultOnce() }
+        if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) {
+            AppMover.offerIfNeeded() // before anything that depends on where the app lives
+            LoginItem.applyDefaultOnce()
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--scratch-test"), index + 2 < CommandLine.arguments.count,
            let pid = pid_t(CommandLine.arguments[index + 2]) {
             let file = URL(fileURLWithPath: CommandLine.arguments[index + 1])

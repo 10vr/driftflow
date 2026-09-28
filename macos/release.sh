@@ -4,10 +4,11 @@
 #
 #   ./release.sh 0.2.2 --notes "What changed"   tags v0.2.2 and pushes the tag, which makes GitHub
 #                                               build Windows and add its installer to the page;
-#                                               then builds and signs the Mac app, adds
-#                                               Driftflow-0.2.2-macOS.zip to the page and lists
-#                                               it in the Mac update feed, updates/macos/appcast.xml
-#   ./release.sh 0.2.2 --local                  only build dist/Driftflow-0.2.2-macOS.zip
+#                                               then builds and signs the Mac app, adds the
+#                                               installer Driftflow-0.2.2-macOS.dmg and the update
+#                                               Driftflow-0.2.2-macOS.zip to the page and lists the
+#                                               zip in the Mac update feed, updates/macos/appcast.xml
+#   ./release.sh 0.2.2 --local                  only build dist/Driftflow-0.2.2-macOS.dmg and .zip
 #
 # The tag goes on the commit you're on, which must be pushed and clean. If the tag already exists
 # (you pushed it yourself), its message is used as the notes. In the notes, start a line with
@@ -40,8 +41,10 @@ REPO="10vr/driftflow"
 TAG="v$VERSION"
 APP="build.noindex/Driftflow.app"
 DIST="dist"
-ZIP_NAME="Driftflow-$VERSION-macOS.zip"
+ZIP_NAME="Driftflow-$VERSION-macOS.zip" # what installed copies update from
 ZIP="$DIST/$ZIP_NAME"
+DMG_NAME="Driftflow-$VERSION-macOS.dmg" # what people download: drag Driftflow to Applications
+DMG="$DIST/$DMG_NAME"
 FEED="../updates/macos/appcast.xml"
 SPARKLE_BIN=".build/artifacts/sparkle/Sparkle/bin"
 BUILD_NUMBER="$(date +%Y%m%d%H%M)" # Sparkle compares this; it only ever goes up
@@ -91,6 +94,19 @@ if [ -n "$DEVELOPER_ID" ]; then
     ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 fi
 echo "Created $ZIP (signed as \"$IDENTITY\")"
+
+# The installer disk image, laid out by dmgbuild (Resources/DMG), no Finder scripting needed.
+if [ ! -x .venv-dmg/bin/dmgbuild ]; then
+    python3 -m venv .venv-dmg && .venv-dmg/bin/pip install -q dmgbuild
+fi
+rm -f "$DMG"
+.venv-dmg/bin/dmgbuild -s Resources/DMG/dmg_settings.py -D app="$APP" "Driftflow" "$DMG" >/dev/null
+codesign --force ${TIMESTAMP[@]+"${TIMESTAMP[@]}"} --sign "$IDENTITY" "$DMG"
+if [ -n "$DEVELOPER_ID" ]; then
+    xcrun notarytool submit "$DMG" --keychain-profile "${NOTARY_PROFILE:-driftflow-notary}" --wait
+    xcrun stapler staple "$DMG"
+fi
+echo "Created $DMG"
 [ "$LOCAL" = 1 ] && exit 0
 
 # sign_update prints: sparkle:edSignature="…" length="…"
@@ -103,7 +119,7 @@ gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
     || gh release create "$TAG" -R "$REPO" --verify-tag --title "Driftflow $VERSION" \
         --notes "$(../scripts/release-notes.sh "$VERSION" "$NOTES")" \
     || true
-gh release upload "$TAG" "$ZIP" -R "$REPO" --clobber
+gh release upload "$TAG" "$DMG" "$ZIP" -R "$REPO" --clobber
 
 # The Mac updater shows only what changed for Mac ("Mac:" lines and lines for both). A release
 # with nothing for Mac still gets its download on the page, but isn't offered as an update.
