@@ -132,13 +132,13 @@ final class DictationController: ObservableObject {
             self.stop(commit: true)
             self.show(error: "Microphone disconnected: \(error.localizedDescription)")
         }
-        hotkeys.onPress = { [weak self] in
+        hotkeys.onPress = { [weak self] time in
             self?.triggerHeld = true
-            self?.triggerDown()
+            self?.handle(.triggerDown(at: time))
         }
-        hotkeys.onRelease = { [weak self] in
+        hotkeys.onRelease = { [weak self] time in
             self?.triggerHeld = false
-            self?.triggerUp()
+            self?.handle(.triggerUp(at: time))
         }
         hotkeys.onKeyDown = { [weak self] code in self?.otherKeyDown(code) }
         hotkeys.install(settings.trigger)
@@ -363,8 +363,6 @@ final class DictationController: ObservableObject {
 
     // MARK: Trigger
 
-    private func triggerDown() { handle(.triggerDown(at: ProcessInfo.processInfo.systemUptime)) }
-    private func triggerUp() { handle(.triggerUp(at: ProcessInfo.processInfo.systemUptime)) }
     private func otherKeyDown(_ keyCode: UInt16) {
         handle(.otherKey(isEscape: keyCode == UInt16(kVK_Escape), triggerHeld: hotkeys.isDown))
     }
@@ -511,7 +509,7 @@ final class DictationController: ObservableObject {
         }
     }
 
-    private func openSettings(_ pane: SettingsView.Pane) {
+    func openSettings(_ pane: SettingsView.Pane) {
         SettingsRouter.shared.pane = pane
         NSApp.activate()
         let item = NSApp.mainMenu?.items.first?.submenu?.items.first { $0.keyEquivalent == "," }
@@ -1002,6 +1000,28 @@ final class DictationController: ObservableObject {
     // MARK: Demo
 
     /// `Driftflow --demo`: plays the HUD's full lifecycle with simulated speech, for design review.
+    /// Developer aid (`--tap-test`): a quick tap of the dictation key through the real controller
+    /// (no hot keys installed), then reports whether hands-free locked. Discards the recording.
+    func runTapTest() async {
+        func state(_ label: String) {
+            print("\(label): phase=\(phase) handsFree=\(handsFree) error=\(lastError ?? "-") toast=\(toast?.text ?? "-")")
+        }
+        let now = { ProcessInfo.processInfo.systemUptime }
+        let down = now()
+        handle(.triggerDown(at: down))
+        print(String(format: "start() kept the main thread busy for %.0f ms", (now() - down) * 1000))
+        state("after key down")
+        try? await Task.sleep(for: .milliseconds(120))
+        handle(.triggerUp(at: down + 0.12)) // the key event's own time, as HotKeyMonitor now reports
+        state("after key up (0.12 s tap)")
+        for second in 1...4 {
+            try? await Task.sleep(for: .seconds(1))
+            state("after \(second) s")
+        }
+        abort()
+        state("after abort")
+    }
+
     func runDemo() async {
         let words = "Hi team, quick update on the campaign. The client approved the storyboard, so we can start the shoot on Monday.".split(separator: " ")
         while true {

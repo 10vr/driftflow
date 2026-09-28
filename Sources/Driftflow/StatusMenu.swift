@@ -1,0 +1,221 @@
+import AppKit
+import Combine
+
+/// The menu bar icon and its menu, in AppKit so each command can show its shortcut on the right,
+/// including keys a menu can't normally show, like Right ⌘. The menu is rebuilt each time it opens,
+/// so it always reflects the current state.
+@MainActor
+final class StatusMenu: NSObject, NSMenuDelegate {
+    static let shared = StatusMenu()
+
+    private var item: NSStatusItem?
+    private var cancellables: Set<AnyCancellable> = []
+    private let controller = DictationController.shared
+    private let settings = AppSettings.shared
+
+    func install() {
+        guard item == nil else { return }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let menu = NSMenu()
+        menu.delegate = self
+        menu.autoenablesItems = false
+        item.menu = menu
+        self.item = item
+        controller.$phase
+            .sink { [weak self] phase in self?.updateIcon(listening: phase != .idle) }
+            .store(in: &cancellables)
+    }
+
+    private func updateIcon(listening: Bool) {
+        let image = NSImage(systemSymbolName: listening ? "waveform.circle.fill" : "waveform", accessibilityDescription: "Driftflow")
+        image?.isTemplate = true
+        item?.button?.image = image
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        build(menu)
+        alignShortcuts(in: menu)
+    }
+
+    // MARK: Contents
+
+    private func build(_ menu: NSMenu) {
+        let history = HistoryStore.shared
+        let hasDictations = history.entries.contains { $0.status == nil }
+        let setupNeeded = !controller.accessibilityGranted || Permissions.microphone != .authorized
+
+        // Only when something needs your attention; the shortcuts sit next to their commands.
+        if let status = statusLine(setupNeeded: setupNeeded) {
+            let line = NSMenuItem(title: status, action: nil, keyEquivalent: "")
+            line.isEnabled = false
+            menu.addItem(line)
+            menu.addItem(.separator())
+        }
+
+        menu.addItem(command(controller.phase == .idle ? "Start Dictation" : "Stop Dictation",
+                             shortcut: settings.trigger.shortLabel, enabled: controller.phase != .finishing) { [controller] in
+            controller.toggleFromMenu()
+        })
+        menu.addItem(command("Edit Selection by Voice", shortcut: settings.editShortcut?.display,
+                             enabled: controller.phase == .idle && AIRewriter.shared.isAvailable) { [controller] in
+            Task {
+                try? await Task.sleep(for: .milliseconds(250)) // let the menu close first
+                controller.editSelectionByVoice()
+            }
+        })
+        menu.addItem(command("Paste Last Dictation", shortcut: settings.pasteLastShortcut?.display, enabled: hasDictations) { [controller] in
+            controller.pasteLastDictation()
+        })
+
+        menu.addItem(.separator())
+        menu.addItem(command("Transcribe Audio Files…") { FilesWindow.shared.show() })
+        menu.addItem(submenu("Recent", recentMenu(history: history, hasDictations: hasDictations)))
+
+        menu.addItem(.separator())
+        menu.addItem(submenu("Microphone", microphoneMenu()))
+        menu.addItem(submenu("Style", styleMenu()))
+        let sounds = command("Play Sounds") { [settings] in settings.playSounds.toggle() }
+        sounds.state = settings.playSounds ? .on : .off
+        menu.addItem(sounds)
+
+        menu.addItem(.separator())
+        if setupNeeded {
+            menu.addItem(command("Finish Setup…") { [controller] in controller.showOnboarding() })
+        }
+        menu.addItem(command("Settings…", shortcut: "⌘,") { [controller] in controller.openSettings(.general) })
+        menu.addItem(command("About Driftflow") {
+            NSApp.activate()
+            NSApp.orderFrontStandardAboutPanel(nil)
+        })
+        menu.addItem(command("Quit Driftflow", shortcut: "⌘Q") { NSApp.terminate(nil) })
+    }
+
+    private func statusLine(setupNeeded: Bool) -> String? {
+        if setupNeeded { return "Setup needed" }
+        if let progress = controller.downloadProgress ?? controller.accuracyProgress, progress < 1 {
+            return "Downloading speech model… \(Int(progress * 100))%"
+        }
+        switch controller.phase {
+        case .listening: return controller.editing ? "Listening for your edit…" : "Listening…"
+        case .finishing: return "Transcribing…"
+        case .idle: return controller.lastError
+        }
+    }
+
+    private func recentMenu(history: HistoryStore, hasDictations: Bool) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        if hasDictations {
+            let header = NSMenuItem.sectionHeader(title: "Click to Copy")
+            menu.addItem(header)
+            for entry in history.entries.filter({ $0.status == nil }).prefix(10) {
+                let text = entry.text
+                menu.addItem(command(text.count > 48 ? String(text.prefix(47)) + "…" : text) { TextInserter.shared.copy(text) })
+            }
+        } else {
+            let empty = NSMenuItem(title: "Nothing dictated yet", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        }
+        menu.addItem(.separator())
+        menu.addItem(command("Show All History…") { [controller] in controller.openSettings(.history) })
+        return menu
+    }
+
+    private func microphoneMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let devices = AudioDevices.shared
+        let choices = [("", "System Default (\(devices.defaultInputName))")] + devices.inputs.map { ($0.uid, $0.name) }
+        for (uid, name) in choices {
+            let item = command(name) { [settings] in settings.inputDeviceUID = uid }
+            item.state = settings.inputDeviceUID == uid ? .on : .off
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        menu.addItem(command("Microphone Priority…") { [controller] in controller.openSettings(.general) })
+        return menu
+    }
+
+    private func styleMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let available = AIRewriter.shared.isAvailable
+        for style in AIStyle.allCases {
+            let item = command(style.label, enabled: style == .literal || available) { [settings] in settings.aiStyle = style }
+            item.state = settings.aiStyle == style ? .on : .off
+            menu.addItem(item)
+        }
+        if !available {
+            let note = NSMenuItem(title: "Needs Apple Intelligence", action: nil, keyEquivalent: "")
+            note.isEnabled = false
+            menu.addItem(note)
+        }
+        menu.addItem(.separator())
+        menu.addItem(command("App and Website Rules…") { [controller] in controller.openSettings(.styles) })
+        return menu
+    }
+
+    // MARK: Items
+
+    private func command(_ title: String, shortcut: String? = nil, enabled: Bool = true,
+                         action: @escaping @MainActor () -> Void) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(MenuAction.run), keyEquivalent: "")
+        let target = MenuAction(action)
+        item.target = target
+        item.representedObject = target // the menu item doesn't retain its target
+        item.isEnabled = enabled
+        if let shortcut { shortcuts[ObjectIdentifier(item)] = shortcut }
+        return item
+    }
+
+    private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.submenu = menu
+        return item
+    }
+
+    /// Shortcut text per item for the current build of the menu.
+    private var shortcuts: [ObjectIdentifier: String] = [:]
+
+    /// Puts each shortcut in one right-aligned column after the titles, in the lighter colour
+    /// macOS uses for key equivalents. (A real key equivalent can't show "Right ⌘", and mixing the
+    /// two would leave two columns that don't line up.)
+    private func alignShortcuts(in menu: NSMenu) {
+        defer { shortcuts.removeAll() }
+        let font = NSFont.menuFont(ofSize: 0)
+        let width = { (text: String) in (text as NSString).size(withAttributes: [.font: font]).width }
+        let items = menu.items.filter { shortcuts[ObjectIdentifier($0)] != nil }
+        guard !items.isEmpty else { return }
+        let titleWidth = menu.items.map { width($0.title) }.max() ?? 0
+        let shortcutWidth = items.compactMap { shortcuts[ObjectIdentifier($0)] }.map(width).max() ?? 0
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.tabStops = [NSTextTab(textAlignment: .right, location: ceil(titleWidth + 32 + shortcutWidth))]
+        for item in items {
+            guard let shortcut = shortcuts[ObjectIdentifier(item)] else { continue }
+            let title = NSMutableAttributedString(string: item.title + "\t", attributes: [
+                .font: font, .paragraphStyle: paragraph,
+                .foregroundColor: item.isEnabled ? NSColor.labelColor : NSColor.disabledControlTextColor,
+            ])
+            title.append(NSAttributedString(string: shortcut, attributes: [
+                .font: font, .paragraphStyle: paragraph,
+                .foregroundColor: item.isEnabled ? NSColor.secondaryLabelColor : NSColor.quaternaryLabelColor,
+            ]))
+            item.attributedTitle = title
+        }
+    }
+}
+
+/// Target for a menu item's closure.
+private final class MenuAction: NSObject {
+    private let action: @MainActor () -> Void
+
+    init(_ action: @escaping @MainActor () -> Void) {
+        self.action = action
+    }
+
+    @objc func run() {
+        MainActor.assumeIsolated { action() }
+    }
+}

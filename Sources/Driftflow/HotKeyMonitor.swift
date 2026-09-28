@@ -5,8 +5,10 @@ import Carbon.HIToolbox
 /// monitors, which need Accessibility access; key combos use a Carbon hot key, which doesn't.
 @MainActor
 final class HotKeyMonitor {
-    var onPress: () -> Void = {}
-    var onRelease: () -> Void = {}
+    /// Called with the key event's own time (seconds since boot, like `systemUptime`), so a tap is
+    /// measured by when the key really moved, not by when the busy main thread got to the event.
+    var onPress: (TimeInterval) -> Void = { _ in }
+    var onRelease: (TimeInterval) -> Void = { _ in }
     /// Any other key pressed while Driftflow is running (used for Esc and chord detection).
     var onKeyDown: (UInt16) -> Void = { _ in }
 
@@ -40,7 +42,7 @@ final class HotKeyMonitor {
 
     func uninstall() {
         // Don't leave a hold-to-talk dictation stuck if we're reinstalled while the key is down.
-        if isDown { onRelease() }
+        if isDown { onRelease(ProcessInfo.processInfo.systemUptime) }
         monitors.forEach(NSEvent.removeMonitor)
         monitors.removeAll()
         if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
@@ -80,13 +82,13 @@ final class HotKeyMonitor {
         default:
             return
         }
-        setDown(down)
+        setDown(down, at: event.timestamp)
     }
 
-    private func setDown(_ down: Bool) {
+    private func setDown(_ down: Bool, at time: TimeInterval) {
         guard down != isDown else { return }
         isDown = down
-        down ? onPress() : onRelease()
+        down ? onPress(time) : onRelease(time)
     }
 
     private func registerHotKey(_ trigger: TriggerKey) {
@@ -109,7 +111,8 @@ final class HotKeyMonitor {
             guard id.signature == OSType(0x4452_4654) else { return OSStatus(eventNotHandledErr) } // not ours
             let monitor = Unmanaged<HotKeyMonitor>.fromOpaque(context).takeUnretainedValue()
             let pressed = GetEventKind(event) == UInt32(kEventHotKeyPressed)
-            MainActor.assumeIsolated { monitor.setDown(pressed) }
+            let time = GetEventTime(event) // seconds since boot, as NSEvent.timestamp
+            MainActor.assumeIsolated { monitor.setDown(pressed, at: time) }
             return noErr
         }, eventTypes.count, &eventTypes, context, &handlerRef)
 

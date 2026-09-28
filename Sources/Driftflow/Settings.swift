@@ -19,6 +19,17 @@ enum TriggerKey: String, CaseIterable, Identifiable {
         }
     }
 
+    /// As shown next to a menu command.
+    var shortLabel: String {
+        switch self {
+        case .rightCommand: "Right ⌘"
+        case .rightOption: "Right ⌥"
+        case .fn: "fn"
+        case .optionSpace: "⌥Space"
+        case .controlOptionSpace: "⌃⌥Space"
+        }
+    }
+
     /// Modifier-only triggers are watched through NSEvent monitors; key combos use a Carbon hot key.
     var isModifierOnly: Bool {
         switch self {

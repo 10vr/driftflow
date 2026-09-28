@@ -9,12 +9,6 @@ struct DriftflowApp: App {
     @StateObject private var settings = AppSettings.shared
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuContent(controller: controller, settings: settings)
-        } label: {
-            Image(systemName: controller.phase == .idle ? "waveform" : "waveform.circle.fill")
-        }
-
         Settings {
             SettingsView(controller: controller, settings: settings)
         }
@@ -41,12 +35,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let index = CommandLine.arguments.firstIndex(of: "--hud-demo"), index + 1 < CommandLine.arguments.count {
             let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
             Task { await DictationController.shared.runHUDDemo(to: directory) }
+        } else if CommandLine.arguments.contains("--tap-test") {
+            Task {
+                await DictationController.shared.runTapTest()
+                NSApp.terminate(nil)
+            }
         } else if CommandLine.arguments.contains("--demo") {
             Task { await DictationController.shared.runDemo() }
         } else if CommandLine.arguments.contains("--snapshot") {
             // Rendering only: no hot keys or microphone, so it can't interfere with the real app.
         } else {
             DictationController.shared.launch()
+            StatusMenu.shared.install()
         }
         if let index = CommandLine.arguments.firstIndex(of: "--mic-test"), index + 1 < CommandLine.arguments.count {
             Task { await Self.micTest(to: URL(fileURLWithPath: CommandLine.arguments[index + 1])) }
@@ -205,81 +205,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-struct MenuContent: View {
-    @ObservedObject var controller: DictationController
-    @ObservedObject var settings: AppSettings
-    @ObservedObject private var history = HistoryStore.shared
-    @ObservedObject private var devices = AudioDevices.shared
-    @Environment(\.openSettings) private var openSettings
-
-    var body: some View {
-        // One line that says what's happening, only the parts that matter right now.
-        Text(status)
-
-        Button(controller.phase == .idle ? "Start Dictation" : "Stop Dictation") {
-            controller.toggleFromMenu()
-        }
-        .disabled(controller.phase == .finishing)
-        Button("Paste Last Dictation") { controller.pasteLastDictation() }
-            .disabled(!history.entries.contains(where: { $0.status == nil }))
-        Button("Transcribe Audio Files…") { FilesWindow.shared.show() }
-            .keyboardShortcut("o")
-
-        Divider()
-
-        Menu("Recent") {
-            if !history.entries.contains(where: { $0.status == nil }) {
-                Text("Nothing dictated yet")
-            } else {
-                Section("Click to copy") {
-                    ForEach(history.entries.filter { $0.status == nil }.prefix(10)) { entry in
-                        Button(Self.preview(entry.text)) { TextInserter.shared.copy(entry.text) }
-                    }
-                }
-            }
-            Divider()
-            Button("Show All History…") { open(.history) }
-        }
-
-        Picker("Microphone", selection: $settings.inputDeviceUID) {
-            Text("System Default (\(devices.defaultInputName))").tag("")
-            ForEach(devices.inputs) { Text($0.name).tag($0.uid) }
-        }
-
-        Toggle("Play Sounds", isOn: $settings.playSounds)
-
-        Divider()
-
-        if !controller.accessibilityGranted || Permissions.microphone != .authorized {
-            Button("Finish Setup…") { controller.showOnboarding() }
-        }
-        Button("Settings…") { open(.general) }
-            .keyboardShortcut(",")
-        Button("Quit Driftflow") { NSApp.terminate(nil) }
-            .keyboardShortcut("q")
-    }
-
-    private var status: String {
-        if !controller.accessibilityGranted || Permissions.microphone != .authorized { return "Setup needed" }
-        if let progress = controller.downloadProgress ?? controller.accuracyProgress, progress < 1 {
-            return "Downloading model… \(Int(progress * 100))%"
-        }
-        switch controller.phase {
-        case .listening: return controller.handsFree ? "Listening · press \(settings.trigger.label) to finish" : "Listening…"
-        case .finishing: return "Transcribing…"
-        case .idle:
-            if let error = controller.lastError { return error }
-            return "Ready · hold \(settings.trigger.label) to dictate"
-        }
-    }
-
-    private func open(_ pane: SettingsView.Pane) {
-        SettingsRouter.shared.pane = pane
-        NSApp.activate()
-        openSettings()
-    }
-
-    private static func preview(_ text: String) -> String {
-        text.count > 48 ? String(text.prefix(47)) + "…" : text
-    }
-}
