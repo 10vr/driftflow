@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.7</title>
+            <pubDate>Mon, 28 Sep 2026 07:39:29 GMT</pubDate>
+            <sparkle:version>202609281539</sparkle:version>
+            <sparkle:shortVersionString>0.2.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>The Settings window&#x27;s close, minimise and zoom buttons now sit inside the sidebar, like other macOS apps.</p><p>Moving between setup steps no longer slides the old step across the window or overlaps the titles.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.7/Driftflow-0.2.7-macOS.zip" type="application/octet-stream" sparkle:edSignature="YuHSlxctFZ79VLjnQtZkXT5Nlf/h7VTF4EsZvLySkh6DRkfXSbW5CUfWopY1eUiuA2QicdCpdsAEEkDK1AgXCw==" length="13375461"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.6</title>
             <pubDate>Mon, 28 Sep 2026 07:29:49 GMT</pubDate>
             <sparkle:version>202609281529</sparkle:version>
