@@ -1,6 +1,8 @@
-# Driftflow
+# Driftflow for Mac
 
-A fast, private dictation app for Apple Silicon Macs. Hold a key, speak, and let go: your words appear in whatever app you're typing in. Everything runs on the Mac's Neural Engine, and no audio or text ever leaves it.
+Developer notes for the Mac app: performance, design, building, releasing and testing. For downloads and an overview of Driftflow, see the [main README](../README.md).
+
+Driftflow for Mac is a native Swift app for Apple Silicon. Speech is transcribed on the Mac's Neural Engine, and no audio or text leaves the computer.
 
 ## Performance (M5, macOS 26.6)
 
@@ -26,7 +28,7 @@ Tested on 300 real LibriSpeech recordings (half clean, half noisy), with numbers
 | Apple SpeechTranscriber | 3.30% | 2.75–3.91 | 4.36% | 98 ms | Used for live preview and fallback |
 | Nemotron Streaming 0.6B | 3.86% | 3.22–4.59 | 5.11% | 92 ms | Slowest first text (1.3 s) |
 
-## How it's faster than Handy and FluidVoice
+## Design compared with Handy and FluidVoice
 
 | | Handy | FluidVoice | Driftflow |
 |---|---|---|---|
@@ -46,7 +48,7 @@ Requirements to build: Apple Silicon and the Xcode Command Line Tools (Swift 6.2
 
 Running `./build.sh` on its own only builds, into `build.noindex/`. That folder is excluded from Spotlight, so Launchpad never shows a second copy.
 
-The first launch opens a setup window for Microphone and Accessibility access, then downloads the Parakeet model (about 500 MB, one time).
+The first launch opens a setup window for Microphone and Accessibility access, then downloads the Parakeet model (about 600 MB, one time).
 
 **Keeping Accessibility access across rebuilds.** Builds are signed ad hoc by default, so macOS forgets the Accessibility grant each time you rebuild. To avoid that, create a stable signing identity once: in Keychain Access, choose Certificate Assistant › Create a Certificate…, with Name `Driftflow Dev`, Identity Type Self Signed Root, and Certificate Type Code Signing. `build.sh` uses it automatically.
 
@@ -103,7 +105,7 @@ text with timestamps, SRT or VTT; click a timestamp to play the original from th
   (same clips one by one: 98.0%, so chunk seams lose nothing), subtitle starts a median 0.08 s from
   the true speech onset (Unified times shifted 0.3 s earlier; Apple's word ranges trimmed to speech).
 
-## Sharing with other Macs
+## Requirements
 
 Needs Apple Silicon (M1 or later) and macOS 15 or later. The speech model (~590 MB) downloads on first launch.
 
