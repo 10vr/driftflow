@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.8</title>
+            <pubDate>Mon, 28 Sep 2026 07:46:46 GMT</pubDate>
+            <sparkle:version>202609281546</sparkle:version>
+            <sparkle:shortVersionString>0.2.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Fixes a crash in setup&#x27;s microphone step on Macs whose microphones run at different sample rates (for example a Mac mini with a USB mic or AirPods). If a microphone still can&#x27;t be opened, Driftflow now says so instead of quitting.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.8/Driftflow-0.2.8-macOS.zip" type="application/octet-stream" sparkle:edSignature="HykcJuFvES/uXtfacLIGVumaHar9H4AYSF6P3M5xjJHY0NtWjWufOdSy0OX17eNenXa+Nt1TdzYmKahRD1tOBg==" length="13376326"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.7</title>
             <pubDate>Mon, 28 Sep 2026 07:39:29 GMT</pubDate>
             <sparkle:version>202609281539</sparkle:version>
