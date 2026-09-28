@@ -84,10 +84,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             menu.addItem(command("Finish Setup…") { [controller] in controller.showOnboarding() })
         }
         menu.addItem(command("Settings…", shortcut: "⌘,") { [controller] in controller.openSettings(.general) })
-        menu.addItem(command("About Driftflow") {
-            NSApp.activate()
-            NSApp.orderFrontStandardAboutPanel(nil)
-        })
+        menu.addItem(command("About Driftflow") { AboutPanel.show() })
         let updates = command("Check for Updates…") { Updater.shared.checkForUpdates() }
         updates.isEnabled = Updater.shared.canCheck
         menu.addItem(updates)

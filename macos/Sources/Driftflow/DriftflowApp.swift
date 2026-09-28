@@ -13,6 +13,11 @@ struct DriftflowApp: App {
             SettingsView(controller: controller, settings: settings)
         }
         .windowResizability(.contentMinSize)
+        .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Driftflow") { AboutPanel.show() }
+            }
+        }
     }
 }
 
