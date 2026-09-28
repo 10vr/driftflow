@@ -1,9 +1,16 @@
 #!/bin/bash
-# Releases Driftflow for Mac (Apple Silicon, macOS 15+) and hands it to everyone's auto-updater.
+# Releases a Driftflow version for Mac and Windows together, on one GitHub release page
+# ("Driftflow 0.2.2", tag v0.2.2), and hands it to everyone's auto-updater.
 #
-#   ./release.sh 0.2.0 [--notes "What changed"]   build, sign, publish to GitHub Releases (tag mac-v0.2.0)
-#                                                 and add it to the update feed, updates/macos/appcast.xml
-#   ./release.sh 0.2.0 --local                    only build dist/Driftflow-0.2.0.zip
+#   ./release.sh 0.2.2 --notes "What changed"   tags v0.2.2 and pushes the tag, which makes GitHub
+#                                               build Windows and add its installer to the page;
+#                                               then builds and signs the Mac app, adds
+#                                               Driftflow-0.2.2-macOS.zip to the page and lists
+#                                               it in the Mac update feed, updates/macos/appcast.xml
+#   ./release.sh 0.2.2 --local                  only build dist/Driftflow-0.2.2-macOS.zip
+#
+# The tag goes on the commit you're on, which must be pushed and clean. If the tag already exists
+# (you pushed it yourself), its message is used as the notes.
 #
 # Signing: with a "Developer ID Application" certificate in your keychain the app is signed with it
 # and notarized by Apple (store the notary login once with
@@ -28,21 +35,31 @@ while [ $# -gt 0 ]; do
 done
 
 REPO="10vr/driftflow"
-TAG="mac-v$VERSION"
+TAG="v$VERSION"
 APP="build.noindex/Driftflow.app"
 DIST="dist"
-ZIP="$DIST/Driftflow-$VERSION.zip"
+ZIP_NAME="Driftflow-$VERSION-macOS.zip"
+ZIP="$DIST/$ZIP_NAME"
 FEED="../updates/macos/appcast.xml"
 SPARKLE_BIN=".build/artifacts/sparkle/Sparkle/bin"
 BUILD_NUMBER="$(date +%Y%m%d%H%M)" # Sparkle compares this; it only ever goes up
 
 if [ "$LOCAL" = 0 ]; then
     export GH_TOKEN="${GH_TOKEN:-$(gh auth token -u "${REPO%%/*}" 2>/dev/null || gh auth token)}"
-    if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-        echo "Release $TAG already exists. Use a new version number." >&2; exit 1
+    if gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx "$ZIP_NAME"; then
+        echo "The $TAG release already has $ZIP_NAME. Use a new version number." >&2; exit 1
     fi
-    if [ -n "$(git status --porcelain -- "$FEED")" ]; then
-        echo "$FEED has uncommitted changes; commit or discard them first." >&2; exit 1
+    git fetch -q origin main --tags
+    if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+        # Tagged already (by hand): its message is the release notes.
+        [ -n "$NOTES" ] || NOTES="$(git tag -l --format='%(contents)' "$TAG" | sed '/-----BEGIN/,$d')"
+    else
+        if [ -n "$(git status --porcelain)" ] || [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "Commit and push everything first: the tag goes on the pushed commit you're on." >&2; exit 1
+        fi
+        git tag -a "$TAG" -m "${NOTES:-Driftflow $VERSION}"
+        git push -q origin "$TAG"
+        echo "Pushed $TAG: GitHub is building Windows (about 20 minutes)."
     fi
 fi
 
@@ -76,17 +93,15 @@ echo "Created $ZIP (signed as \"$IDENTITY\")"
 
 # sign_update prints: sparkle:edSignature="…" length="…"
 SIGNATURE="$("$SPARKLE_BIN/sign_update" --account driftflow "$ZIP")"
-URL="https://github.com/$REPO/releases/download/$TAG/Driftflow-$VERSION.zip"
+URL="https://github.com/$REPO/releases/download/$TAG/$ZIP_NAME"
 
-INSTALL_NOTES="**Install:** download Driftflow-$VERSION.zip, unzip it and drag Driftflow into Applications."
-if [ -z "$DEVELOPER_ID" ]; then
-    INSTALL_NOTES="$INSTALL_NOTES The first time, right-click Driftflow › Open (or System Settings › Privacy & Security › Open Anyway), because it isn't signed with an Apple Developer ID."
-fi
-INSTALL_NOTES="$INSTALL_NOTES Already installed? Driftflow updates itself."
-gh release create "$TAG" "$ZIP" -R "$REPO" --title "Driftflow for Mac $VERSION" \
-    --notes "${NOTES:+$NOTES
-
-}$INSTALL_NOTES"
+# One release page per version, shared with the Windows installer (the Windows build may have
+# created it already; if both try at once, the loser uploads to the winner's page).
+gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
+    || gh release create "$TAG" -R "$REPO" --verify-tag --title "Driftflow $VERSION" \
+        --notes "$(../scripts/release-notes.sh "$VERSION" "$NOTES")" \
+    || true
+gh release upload "$TAG" "$ZIP" -R "$REPO" --clobber
 
 python3 - "$FEED" "$VERSION" "$BUILD_NUMBER" "$URL" "$SIGNATURE" "$NOTES" <<'PY'
 import sys, html, email.utils, pathlib
@@ -111,5 +126,8 @@ PY
 
 git add "$FEED"
 git commit -q -m "Mac $VERSION: add to the update feed"
-git push -q
-echo "Published $TAG. Macs running Driftflow pick it up within a day (or at once via Check for Updates…)."
+# The Windows build may have pushed its feed update meanwhile.
+git pull -q --rebase origin main
+git push -q origin HEAD:main
+echo "Published the Mac download: https://github.com/$REPO/releases/tag/$TAG"
+echo "Macs running Driftflow pick it up within a day (or at once via Check for Updates…); Windows follows when its build finishes."

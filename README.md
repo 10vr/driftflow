@@ -5,7 +5,9 @@ On-device dictation: hold a key, speak, and your words appear where you're typin
 | Platform | Folder | Stack | Build |
 |---|---|---|---|
 | macOS 15+ (Apple Silicon) | [`macos/`](macos/) | Swift, SwiftUI/AppKit, Parakeet on the Neural Engine (FluidAudio), Apple Speech and Apple Intelligence | `cd macos && ./build.sh --install` |
-| Windows 10/11 (x64) | [`windows/`](windows/) | Rust + Tauri 2, React UI, Parakeet on the graphics card (Vulkan) | GitHub Actions (**Windows build**) → download the **Driftflow-Windows** installer; locally `cd windows && bun install && bun run tauri dev` |
+| Windows 10/11 (x64) | [`windows/`](windows/) | Rust + Tauri 2, React UI, Parakeet on the graphics card (Vulkan) | GitHub Actions (**Windows build**); locally `cd windows && bun install && bun run tauri dev` |
+
+**Download:** the [latest release](https://github.com/10vr/driftflow/releases/latest) has both, with install steps: `Driftflow-…-macOS.zip` and `Driftflow-…-Windows-x64-setup.exe`. Both update themselves. To release a version of both, run `macos/release.sh <version> --notes "…"` (see [`macos/README.md`](macos/README.md)).
 
 The two apps share a design and behaviour, not code: each is native to its platform. What Driftflow does is described in [`macos/README.md`](macos/README.md), and the Windows app follows it.
 
