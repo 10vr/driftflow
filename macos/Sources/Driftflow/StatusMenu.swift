@@ -217,6 +217,6 @@ private final class MenuAction: NSObject {
     }
 
     @objc func run() {
-        MainActor.assumeIsolated { action() }
+        onMainThread { action() }
     }
 }

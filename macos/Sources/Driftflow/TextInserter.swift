@@ -148,7 +148,7 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
 
     nonisolated func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
         let provide = {
-            MainActor.assumeIsolated {
+            onMainThread {
                 item.setString(self.promisedText, forType: type)
                 // The app has the text. It may ask for more representations within the same paste,
                 // so give it a moment before handing the clipboard back.
@@ -303,7 +303,7 @@ enum InputActivity {
         guard monitor == nil else { return }
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { event in
             if event.cgEvent?.getIntegerValueField(.eventSourceUserData) == ownEventMarker { return }
-            MainActor.assumeIsolated { lastActivity = Date() }
+            onMainThread { lastActivity = Date() }
         }
     }
 

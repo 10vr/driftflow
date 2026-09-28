@@ -806,7 +806,7 @@ final class TranscriptPlayer: ObservableObject {
 
     init() {
         stopObserver = NotificationCenter.default.addObserver(forName: Self.stopAll, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
+            onMainThread {
                 self?.player?.pause()
                 self?.playing = false
             }
@@ -827,7 +827,7 @@ final class TranscriptPlayer: ObservableObject {
         if player == nil {
             let player = AVPlayer(url: url)
             observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 10), queue: .main) { [weak self] time in
-                MainActor.assumeIsolated {
+                onMainThread {
                     guard let self else { return }
                     self.time = time.seconds
                     self.playing = (self.player?.rate ?? 0) > 0

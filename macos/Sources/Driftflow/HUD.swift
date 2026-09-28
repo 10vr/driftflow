@@ -66,7 +66,7 @@ final class HUDController {
     private func observeAppearance() {
         DistributedNotificationCenter.default().addObserver(forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
                                                             object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.panel?.appearance = Self.systemAppearance }
+            onMainThread { self?.panel?.appearance = Self.systemAppearance }
         }
     }
 
@@ -108,7 +108,7 @@ final class HUDController {
     private func startTrackingMouse() {
         guard mouseTimer == nil else { return }
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
+            onMainThread {
                 guard let self, let panel = self.panel, HUDHover.shared.forced == nil else { return }
                 let mouse = NSEvent.mouseLocation
                 let local = CGPoint(x: mouse.x - panel.frame.minX, y: panel.frame.maxY - mouse.y) // SwiftUI: top-left origin

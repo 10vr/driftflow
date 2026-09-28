@@ -179,7 +179,7 @@ final class DictationController: ObservableObject {
         AudioDucker.restoreAfterCrash()
         HistoryStore.shared.expireRescueAudio()
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
-            MainActor.assumeIsolated { HistoryStore.shared.expireRescueAudio() }
+            onMainThread { HistoryStore.shared.expireRescueAudio() }
         }
         GlobalShortcuts.shared.handlers[.pasteLast] = { [weak self] in self?.pasteLastDictation(fromShortcut: true) }
         GlobalShortcuts.shared.handlers[.handsFree] = { [weak self] in self?.toggleFromMenu() }
@@ -355,7 +355,7 @@ final class DictationController: ObservableObject {
 
     private func watchAccessibility() {
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
+            onMainThread {
                 guard let self else { return }
                 let microphone = Permissions.microphone == .authorized
                 if microphone != self.microphoneAuthorized {

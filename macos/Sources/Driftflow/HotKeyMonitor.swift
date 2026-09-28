@@ -54,12 +54,12 @@ final class HotKeyMonitor {
 
     private func addMonitor(for mask: NSEvent.EventTypeMask, handler: @escaping (NSEvent) -> Void) {
         if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { event in
-            MainActor.assumeIsolated { handler(event) }
+            onMainThread { handler(event) }
         }) {
             monitors.append(global)
         }
         if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { event in
-            MainActor.assumeIsolated { handler(event) }
+            onMainThread { handler(event) }
             return event
         }) {
             monitors.append(local)
@@ -112,7 +112,7 @@ final class HotKeyMonitor {
             let monitor = Unmanaged<HotKeyMonitor>.fromOpaque(context).takeUnretainedValue()
             let pressed = GetEventKind(event) == UInt32(kEventHotKeyPressed)
             let time = GetEventTime(event) // seconds since boot, as NSEvent.timestamp
-            MainActor.assumeIsolated { monitor.setDown(pressed, at: time) }
+            onMainThread { monitor.setDown(pressed, at: time) }
             return noErr
         }, eventTypes.count, &eventTypes, context, &handlerRef)
 

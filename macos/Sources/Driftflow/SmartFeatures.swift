@@ -205,7 +205,7 @@ final class CorrectionWatcher {
             self.stableTicks = 0
             self.deadline = Date().addingTimeInterval(90)
             self.timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.tick() }
+                onMainThread { self?.tick() }
             }
         }
     }

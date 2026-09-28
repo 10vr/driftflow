@@ -51,15 +51,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else if CommandLine.arguments.contains("--demo") {
             Task { await DictationController.shared.runDemo() }
-        } else if CommandLine.arguments.contains("--snapshot") {
-            // Rendering only: no hot keys or microphone, so it can't interfere with the real app.
+        } else if CommandLine.arguments.contains("--snapshot") || CommandLine.arguments.contains("--mic-test") {
+            // Developer runs: no hot keys or dictation, so they can't interfere with the real app.
         } else {
             DictationController.shared.launch()
             StatusMenu.shared.install()
             _ = Updater.shared
         }
         if let index = CommandLine.arguments.firstIndex(of: "--mic-test"), index + 1 < CommandLine.arguments.count {
-            Task { await Self.micTest(to: URL(fileURLWithPath: CommandLine.arguments[index + 1])) }
+            Task {
+                await Self.micTest(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+                NSApp.terminate(nil)
+            }
         }
         if let index = CommandLine.arguments.firstIndex(of: "--snapshot"), index + 1 < CommandLine.arguments.count {
             let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
@@ -182,12 +185,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Developer aid (`--mic-test <file>`): records 0.5 s from each microphone through the real
-    /// capture path and writes what arrived. Audio is counted, never kept.
+    /// capture path, switching one capture between them (and back to the system default) the way
+    /// the app does, and writes what arrived. Audio is counted, never kept.
     @MainActor
     static func micTest(to file: URL) async {
         var lines: [String] = []
-        for uid in [""] + AudioDevices.shared.inputs.map(\.uid) {
-            let capture = AudioCapture()
+        let capture = AudioCapture()
+        for uid in [""] + AudioDevices.shared.inputs.map(\.uid) + [""] {
             capture.preferredDeviceUIDs = [uid]
             let pipe = AudioPipe()
             let counter = OSAllocatedUnfairLock(initialState: (frames: 0, rate: 0.0, channels: 0))

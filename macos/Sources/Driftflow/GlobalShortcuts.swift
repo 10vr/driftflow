@@ -125,7 +125,7 @@ final class GlobalShortcuts: ObservableObject {
             guard status == noErr, id.signature == GlobalShortcuts.signature, let action = Action(rawValue: id.id) else {
                 return OSStatus(eventNotHandledErr) // someone else's hot key (the dictation key)
             }
-            MainActor.assumeIsolated { GlobalShortcuts.shared.handlers[action]?() }
+            onMainThread { GlobalShortcuts.shared.handlers[action]?() }
             return noErr
         }, 1, &eventType, nil, &handlerRef)
     }

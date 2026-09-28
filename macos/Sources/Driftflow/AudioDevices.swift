@@ -22,7 +22,7 @@ final class AudioDevices: ObservableObject {
             var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
                                                      mElement: kAudioObjectPropertyElementMain)
             AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main) { _, _ in
-                MainActor.assumeIsolated { AudioDevices.shared.refresh() }
+                onMainThread { AudioDevices.shared.refresh() }
             }
         }
     }
@@ -118,7 +118,7 @@ final class AudioDevices: ObservableObject {
         return ids
     }
 
-    private nonisolated static func defaultInput() -> AudioDeviceID? {
+    nonisolated static func defaultInput() -> AudioDeviceID? {
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice, mScope: kAudioObjectPropertyScopeGlobal,
                                                  mElement: kAudioObjectPropertyElementMain)
         var id = AudioDeviceID(0)
