@@ -40,6 +40,12 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
     private var savedItems: [NSPasteboardItem]?
     private var promiseChangeCount = 0
     private var restoreWork: DispatchWorkItem?
+    /// The pending paste goes to a remote-desktop viewer (see `remoteDesktopApps`).
+    private var pastingRemotely = false
+    /// Its ⌘V, waiting for the viewer to copy the text across, and a Return to follow it.
+    private var remotePaste: DispatchWorkItem?
+    private var returnAfterRemotePaste = false
+    private var remoteViewerRead = false
     /// `--scratch-test` only: deliver keystrokes to this process instead of the focused app.
     var testTargetPID: pid_t?
 
@@ -48,7 +54,8 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
             copy(text)
             return .copiedOnly
         }
-        switch method {
+        // Typed characters don't survive the trip to a remote computer; pastes do.
+        switch Self.frontmostIsRemoteDesktop ? .paste : method {
         case .paste: paste(text, restoreClipboard: restoreClipboard)
         case .type: type(text)
         }
@@ -124,32 +131,86 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
 
     private func paste(_ text: String, restoreClipboard: Bool) {
         restoreNow() // a previous paste still waiting to restore gives the clipboard back first
+        pastingRemotely = Self.frontmostIsRemoteDesktop
+        remoteViewerRead = false
 
         if restoreClipboard {
             savedItems = snapshot()
             promisedText = text
             let item = NSPasteboardItem()
             item.setDataProvider(self, forTypes: [.string])
-            // Well-behaved clipboard managers skip these, so they don't read (and trigger) the promise.
-            item.setString("", forType: Self.transientType)
-            item.setString("", forType: Self.concealedType)
+            // Well-behaved clipboard managers skip these, so they don't read (and trigger) the
+            // promise. Remote-desktop viewers skip them too, and they must copy this one across.
+            if !pastingRemotely {
+                item.setString("", forType: Self.transientType)
+                item.setString("", forType: Self.concealedType)
+            }
             pasteboard.clearContents()
             pasteboard.writeObjects([item])
             promiseChangeCount = pasteboard.changeCount
             // Safety net if the app never asks for the data (focus on a non-text element). Generous,
-            // because a busy app (Electron, remote desktop) may read the clipboard late.
-            scheduleRestore(after: 8.0)
+            // because a busy app (Electron) may read the clipboard late.
+            if !pastingRemotely { scheduleRestore(after: 8.0) }
         } else {
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
         }
+        if pastingRemotely {
+            // ⌘V goes on to the remote computer, which pastes its own clipboard: the viewer has to
+            // copy the text across first. Send ⌘V once it has read the text (the data provider
+            // brings this forward), or after a second for viewers that only notice the clipboard now and then.
+            scheduleRemotePaste(after: 1.0)
+        } else {
+            sendPaste()
+        }
+    }
+
+    private func sendPaste() {
         postShortcut(key: Self.keyCode(for: "v") ?? CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+    }
+
+    private func scheduleRemotePaste(after delay: TimeInterval) {
+        remotePaste?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.sendRemotePaste() }
+        remotePaste = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func sendRemotePaste() {
+        remotePaste?.cancel()
+        remotePaste = nil
+        sendPaste()
+        AppLog.info("Pasted into a remote desktop (\(remoteViewerRead ? "after the viewer copied the text" : "the viewer hadn't read the text yet"))")
+        if returnAfterRemotePaste {
+            returnAfterRemotePaste = false
+            postShortcut(key: CGKeyCode(kVK_Return), flags: [])
+        }
+        // The remote computer pastes after the round trip (some viewers only fetch the text then),
+        // so keep the text on this Mac's clipboard a while before giving yours back.
+        if savedItems != nil { scheduleRestore(after: 3.0) }
+    }
+
+    /// Remote-desktop viewers: typing or pasting there happens on another computer.
+    private static let remoteDesktopApps: Set<String> = [
+        "com.p5sys.jump.mac.viewer", "com.microsoft.rdc.macos", "com.apple.ScreenSharing", "com.teamviewer.TeamViewer",
+        "com.philandro.anydesk", "com.carriez.rustdesk", "com.realvnc.vncviewer", "com.citrix.receiver.nomas",
+        "com.vmware.horizon", "tv.parsec.www",
+    ]
+
+    static var frontmostIsRemoteDesktop: Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier.map(remoteDesktopApps.contains) ?? false
     }
 
     nonisolated func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
         let provide = {
             onMainThread {
                 item.setString(self.promisedText, forType: type)
+                if self.pastingRemotely {
+                    // The viewer is copying the text across: ⌘V can follow it shortly.
+                    self.remoteViewerRead = true
+                    if self.remotePaste != nil { self.scheduleRemotePaste(after: 0.15) }
+                    return
+                }
                 // The app has the text. It may ask for more representations within the same paste,
                 // so give it a moment before handing the clipboard back.
                 self.scheduleRestore(after: 0.12)
@@ -166,6 +227,7 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
     }
 
     func restoreNow() {
+        if remotePaste != nil { sendRemotePaste() } // don't lose a paste still on its way
         restoreWork?.cancel()
         restoreWork = nil
         guard let saved = savedItems else { return }
@@ -200,6 +262,7 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
     /// Return, to send a message (per-app rule). Queued after the paste's ⌘V, so it lands after the text.
     func pressReturn() {
         guard Permissions.accessibilityGranted else { return }
+        if remotePaste != nil { returnAfterRemotePaste = true; return }
         postShortcut(key: CGKeyCode(kVK_Return), flags: [])
     }
 
