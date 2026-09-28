@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.3</title>
+            <pubDate>Mon, 28 Sep 2026 06:39:43 GMT</pubDate>
+            <sparkle:version>202609281439</sparkle:version>
+            <sparkle:shortVersionString>0.2.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Windows: fixes the first-run setup loading the speech model over and over (and the window going blank) when the model was already on the PC.</p><p>Windows: if the window ever fails, it now shows the error with Copy Error and Reload instead of staying blank.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.3/Driftflow-0.2.3-macOS.zip" type="application/octet-stream" sparkle:edSignature="H7MWArwfTCdmG5ElTaN89A07b0TwBJ9IPaSjhTJqE9wwJJkClN0C9vZYDS0yCn75QYwLzBCJrIZT+dNHwhP4AA==" length="13349460"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.2</title>
             <pubDate>Mon, 28 Sep 2026 06:19:39 GMT</pubDate>
             <sparkle:version>202609281419</sparkle:version>
