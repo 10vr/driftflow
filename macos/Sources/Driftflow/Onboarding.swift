@@ -128,23 +128,33 @@ private struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 0) {
                 PhaseBar(current: step.phase)
                     .padding(.bottom, 36)
-                Text(OnboardingStep.phases[step.phase].uppercased())
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .tracking(0.8)
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.bottom, 8)
-                Text(step.title)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .padding(.bottom, 10)
-                Text(step.subtitle)
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let hint = step.hint {
-                    Label(hint, systemImage: "lightbulb")
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 18)
+                // The old step's words fade out before the new ones fade in, so the two titles
+                // never show on top of each other.
+                ZStack(alignment: .topLeading) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(OnboardingStep.phases[step.phase].uppercased())
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .tracking(0.8)
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.bottom, 8)
+                        Text(step.title)
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .padding(.bottom, 10)
+                        Text(step.subtitle)
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let hint = step.hint {
+                            Label(hint, systemImage: "lightbulb")
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 18)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .id(step)
+                    .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.22).delay(0.12)),
+                                            removal: .opacity.animation(.easeIn(duration: 0.12))))
                 }
                 Spacer()
                 HStack {
@@ -186,13 +196,16 @@ private struct OnboardingView: View {
                     )
                 card
                     .padding(28)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .id(step)
-                    .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
-                                            removal: .move(edge: .leading).combined(with: .opacity)))
+                    // A short slide within the panel (clipped below), never across the window.
+                    .transition(.asymmetric(insertion: .offset(x: 48).combined(with: .opacity),
+                                            removal: .offset(x: -48).combined(with: .opacity)))
             }
+            .clipShape(.rect(cornerRadius: 24))
             .padding(20)
         }
-        .frame(width: 900, height: 580)
+        .frame(minWidth: 900, maxWidth: .infinity, minHeight: 580, maxHeight: .infinity)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: step)
         .onAppear(perform: resume)
         .onReceive(poll) { _ in

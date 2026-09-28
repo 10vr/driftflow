@@ -90,11 +90,17 @@ struct SettingsView: View {
 }
 
 /// Gives the window it's placed in working minimise and zoom buttons (SwiftUI's Settings window
-/// comes without them).
+/// comes without them) and a unified toolbar. SwiftUI gives Settings windows the old
+/// preferences-style toolbar, which on macOS 26 leaves the window buttons on the corner, over the
+/// sidebar's edge, instead of inside the sidebar like System Settings.
 private struct StandardWindowButtons: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { view.window?.styleMask.insert([.miniaturizable, .resizable]) }
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.styleMask.insert([.miniaturizable, .resizable])
+            window.toolbarStyle = .unified
+        }
         return view
     }
 

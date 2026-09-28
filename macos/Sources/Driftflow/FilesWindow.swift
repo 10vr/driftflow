@@ -287,6 +287,13 @@ final class FilesWindow {
         DictationController.shared.resetOnboardingWindow()
         UserDefaults.standard.set(saved, forKey: "onboardingStep")
 
+        // The Settings window, title bar included (to check the window buttons' placement).
+        DictationController.shared.openSettings(.general)
+        try? await Task.sleep(for: .seconds(2))
+        let settings = NSApp.windows.first { $0.isVisible && $0.identifier?.rawValue.contains("Settings") == true }
+            ?? NSApp.windows.first { $0.isVisible && $0.title == "General" }
+        Self.capture(settings, to: directory.appendingPathComponent("settings-general.png"))
+        settings?.close()
     }
 
     func snapshot(to directory: URL) async {
