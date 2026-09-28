@@ -61,6 +61,8 @@ final class AudioDevices: ObservableObject {
 
     /// The UID of the microphone `deviceID(forPriority:)` picks, for showing which one is in use.
     nonisolated static func uid(of device: AudioDeviceID) -> String? { string(device, kAudioDevicePropertyDeviceUID) }
+    /// The device's name, for the support log.
+    nonisolated static func name(of device: AudioDeviceID) -> String? { string(device, kAudioObjectPropertyName) }
 
     private nonisolated static func externalRank(_ id: AudioDeviceID) -> Int? { externalRanks[transportType(id)] }
     private nonisolated static let externalRanks: [UInt32: Int] = [

@@ -118,7 +118,15 @@ final class DictationController: ObservableObject {
     private init() {}
 
     func launch() {
-        AppLog.info("Started · \(AppLog.systemSummary) · microphone access \(Permissions.microphone) · "
+        AppLog.noteHowLastSessionEnded()
+        let micAccess = switch Permissions.microphone {
+        case .authorized: "allowed"
+        case .denied: "denied"
+        case .restricted: "restricted"
+        case .notDetermined: "not asked yet"
+        @unknown default: "unknown"
+        }
+        AppLog.info("Started · \(AppLog.systemSummary) · microphone access \(micAccess) · "
             + "accessibility \(AXIsProcessTrusted() ? "on" : "off") · model \(settings.modelPreference.rawValue)")
         if #available(macOS 26.0, *) {
             appleEngine?.onDownloadProgress = { [weak self] progress in

@@ -94,9 +94,17 @@ final class AudioCapture: @unchecked Sendable {
             throw CaptureError.couldNotListen(problem.localizedDescription)
         }
         engine.prepare()
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        if let unit = input.audioUnit {
+            AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, &size)
+        }
+        AppLog.info("Microphone on: \(AudioDevices.name(of: device) ?? "unknown") at \(Int(format.sampleRate)) Hz, "
+            + "\(format.channelCount) ch (device format \(Int(hardware.sampleRate)) Hz)")
         do {
             try engine.start()
         } catch {
+            AppLog.error("The microphone didn't start: \(error.localizedDescription)")
             input.removeTap(onBus: 0)
             throw error
         }
@@ -186,6 +194,7 @@ final class AudioCapture: @unchecked Sendable {
     private func handleConfigurationChange() {
         // The input device or its format changed (AirPods connected, default mic switched...).
         let wasRunning = isRunning
+        AppLog.info("Audio devices changed\(isRunning ? " while listening: restarting the microphone" : "")")
         let pipe = state.withLock { $0.pipe }
         let recording = recordingID
         if isRunning {
@@ -205,6 +214,7 @@ final class AudioCapture: @unchecked Sendable {
                     try self.warm()
                     if let pipe, self.recordingID == recording { self.state.withLock { $0.pipe = pipe } }
                 } catch {
+                    AppLog.error("The microphone couldn't restart after a device change: \(error.localizedDescription)")
                     self.onFailure?(error)
                 }
             }

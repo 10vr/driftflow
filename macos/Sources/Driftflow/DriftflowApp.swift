@@ -81,6 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TextInserter.shared.restoreNow() // give back your clipboard if a paste is still pending
         HistoryStore.shared.flush()
         FileTranscriber.shared.flush()
+        AppLog.info("Quit")
+        AppLog.flush()
     }
 
     /// Clicking the Dock icon (or opening the app again) with no windows shows Settings.

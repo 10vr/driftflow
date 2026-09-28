@@ -156,13 +156,14 @@ private struct GeneralPane: View {
                 LabeledContent("Log") {
                     HStack {
                         Button("Copy Log") { AppLog.copyToClipboard() }
+                        Button("Save Report…") { AppLog.saveReport() }
                         Button("Show in Finder") { AppLog.showInFinder() }
                     }
                 }
             } header: {
                 Text("Troubleshooting")
             } footer: {
-                Text("If something goes wrong, Copy Log and paste it into your message (also in the menu bar menu). The log records what Driftflow did, never what you dictated.")
+                Text("If something goes wrong, Copy Log and paste it into your message (also in the menu bar menu): it includes past sessions and any recent crash reports. Save Report… writes everything to a file. The log records what Driftflow did, never what you dictated.")
                     .foregroundStyle(.secondary)
             }
 
