@@ -82,7 +82,7 @@ You can choose a different key in Settings › Shortcuts. On keyboards where Rig
 
 ## Performance
 
-Measured on a MacBook with an M5 chip, macOS 26.6:
+Measured on a Mac with an M5 chip, running macOS 26.6:
 
 | | Driftflow for Mac |
 |---|---|
