@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.10</title>
+            <pubDate>Mon, 28 Sep 2026 09:55:06 GMT</pubDate>
+            <sparkle:version>202609281753</sparkle:version>
+            <sparkle:shortVersionString>0.2.10</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Bluetooth headsets and earbuds no longer make the microphone restart over and over during a dictation, which could lose what you said.</p><p>Fixed a rare crash in the background.</p><p>The About window shows what Driftflow is, with links to the website, what&#x27;s new and reporting a problem.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.10/Driftflow-0.2.10-macOS.zip" type="application/octet-stream" sparkle:edSignature="E6D5rXmrBRLqNPlMQRWjq/lsLOG3h3ZwQH5Jd1nAM/LTLeeApQYp33VVsSaEM59M6u8YBmPzj/YhMGY/kN0fAA==" length="13404326"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.9</title>
             <pubDate>Mon, 28 Sep 2026 08:16:18 GMT</pubDate>
             <sparkle:version>202609281615</sparkle:version>
