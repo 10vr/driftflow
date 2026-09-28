@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.12</title>
+            <pubDate>Mon, 28 Sep 2026 14:19:14 GMT</pubDate>
+            <sparkle:version>202609282218</sparkle:version>
+            <sparkle:shortVersionString>0.2.12</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>The style that keeps your words exactly as spoken is now called Original (it was Literal). Your choice and app rules carry over.</p><p>Check for Updates… now sits just above Quit in the menu.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.12/Driftflow-0.2.12-macOS.zip" type="application/octet-stream" sparkle:edSignature="w4R0Ue7433ETvfb+GSu7/d3eeP29dsg7pLJYKzJhXkQEdlaS77CpDy2NRGbrE2CRlHLHHJkUfMJpLTkcsVHXDQ==" length="13405577"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.11</title>
             <pubDate>Mon, 28 Sep 2026 12:19:13 GMT</pubDate>
             <sparkle:version>202609282018</sparkle:version>
