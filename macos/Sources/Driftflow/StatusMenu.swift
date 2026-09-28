@@ -88,6 +88,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             NSApp.activate()
             NSApp.orderFrontStandardAboutPanel(nil)
         })
+        let updates = command("Check for Updates…") { Updater.shared.checkForUpdates() }
+        updates.isEnabled = Updater.shared.canCheck
+        menu.addItem(updates)
         menu.addItem(command("Quit Driftflow", shortcut: "⌘Q") { NSApp.terminate(nil) })
     }
 

@@ -131,6 +131,8 @@ private struct GeneralPane: View {
                     .foregroundStyle(.secondary)
             }
 
+            UpdatesSection()
+
             Section("Feedback") {
                 Toggle("Show live transcript", isOn: $settings.showHUD)
                 Picker("Position", selection: $settings.hudPosition) {
@@ -1085,6 +1087,28 @@ private struct PermissionsPane: View {
             }
         }
         .onAppear { microphone = Permissions.microphone }
+    }
+}
+
+/// Sparkle's own settings (it stores them itself), so they stay in step with the update prompts.
+private struct UpdatesSection: View {
+    @ObservedObject private var updater = Updater.shared
+
+    var body: some View {
+        Section {
+            Toggle("Check for updates automatically", isOn: Binding(get: { updater.automaticallyChecks }, set: { updater.automaticallyChecks = $0 }))
+            Toggle("Download and install updates automatically", isOn: Binding(get: { updater.automaticallyInstalls }, set: { updater.automaticallyInstalls = $0 }))
+                .disabled(!updater.automaticallyChecks)
+            LabeledContent("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")") {
+                Button("Check Now") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheck)
+            }
+        } header: {
+            Text("Updates")
+        } footer: {
+            Text("New versions install when Driftflow quits or restarts. Updates are signed, and Driftflow refuses any that aren't.")
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

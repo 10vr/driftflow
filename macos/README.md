@@ -122,14 +122,31 @@ Differences on macOS 15:
 
 The live preview paces itself, waiting at least twice as long as the last update took, so slower chips preview less often instead of falling behind.
 
-- `./release.sh 0.1.0 --quick` → `dist/Driftflow-0.1.0.zip` with a "How to open" note. Signed with the local
-  "Driftflow Dev" certificate, so colleagues open it once via System Settings › Privacy & Security › Open Anyway.
-  Updates signed with the same certificate keep their Microphone/Accessibility grants.
-- `./release.sh 0.1.0` → notarized `dist/Driftflow-0.1.0.dmg` that opens with no warnings. Needs an Apple Developer
-  Program membership, a "Developer ID Application" certificate, and a one-time
-  `xcrun notarytool store-credentials driftflow-notary …` (see the top of `release.sh`).
+## Releasing and auto-updates
 
-Both use the hardened runtime with the microphone entitlement (`Resources/Driftflow.entitlements`), as does `build.sh`.
+Driftflow updates itself with [Sparkle](https://sparkle-project.org): once a day it reads the feed
+[`updates/macos/appcast.xml`](../updates/macos/appcast.xml), downloads a newer version quietly and installs it when
+the app quits. Settings › General › Updates turns this off; the menu has **Check for Updates…**.
+
+- `./release.sh 0.2.0 --notes "What changed"` builds and signs the app, uploads `Driftflow-0.2.0.zip` to GitHub
+  Releases (tag `mac-v0.2.0`), adds it to the feed and pushes. Needs the `gh` CLI signed in to GitHub.
+- `./release.sh 0.2.0 --local` only makes `dist/Driftflow-0.2.0.zip`.
+
+**Signing.** Without a Developer ID the app is signed with the free, self-made "Driftflow Dev" certificate
+(Keychain Access › Certificate Assistant › Create a Certificate… · Self Signed Root · Code Signing). Updates signed
+with the same certificate keep their Microphone and Accessibility permissions; a first install needs right-click ›
+Open. With an Apple Developer ID certificate in the keychain, `release.sh` uses it and notarizes instead (one-time
+`xcrun notarytool store-credentials driftflow-notary …`); the switch asks users to allow Accessibility once more.
+The app's entitlements (`Resources/Driftflow.entitlements`) add the microphone and allow loading the bundled
+Sparkle.framework, which hardened runtime otherwise refuses without an Apple team.
+
+**Keys to back up.** Both live only in this Mac's login keychain:
+- the **"Driftflow Dev" certificate** and its private key (Keychain Access › export as .p12). If it's lost,
+  every user has to allow Accessibility and Microphone again after the next update.
+- the **Sparkle update key**: `.build/artifacts/sparkle/Sparkle/bin/generate_keys --account driftflow -x driftflow-sparkle.key`
+  exports it. If it's lost, installed copies can no longer update and need a manual reinstall.
+
+Store the exports somewhere safe (a password manager), never in the repo.
 
 ## Pill, toasts and reliability
 

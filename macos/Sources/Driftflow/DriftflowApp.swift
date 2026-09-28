@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             DictationController.shared.launch()
             StatusMenu.shared.install()
+            _ = Updater.shared
         }
         if let index = CommandLine.arguments.firstIndex(of: "--mic-test"), index + 1 < CommandLine.arguments.count {
             Task { await Self.micTest(to: URL(fileURLWithPath: CommandLine.arguments[index + 1])) }

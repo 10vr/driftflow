@@ -5,5 +5,10 @@
     <!-- Hardened runtime blocks the microphone unless the app declares it. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Lets the app load its bundled Sparkle.framework. Hardened runtime otherwise only loads
+         libraries signed by the same Apple team, and a self-made certificate has no team.
+         Remove this once Driftflow is signed with a Developer ID. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
 </dict>
 </plist>

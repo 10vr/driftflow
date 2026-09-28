@@ -17,13 +17,22 @@ cp "$BIN_DIR/Driftflow" "$APP/Contents/MacOS/Driftflow"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp Resources/Sounds/*.caf Resources/Sounds/*.wav Resources/Sounds/THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+mkdir -p "$APP/Contents/Frameworks"
+cp -R "$BIN_DIR/Sparkle.framework" "$APP/Contents/Frameworks/"
 
 # Sign with a stable identity when available so macOS keeps the Accessibility grant across rebuilds.
 # Create one once: Keychain Access › Certificate Assistant › Create a Certificate…
 #   Name: Driftflow Dev · Identity Type: Self Signed Root · Certificate Type: Code Signing
 IDENTITY="${MURMUR_SIGN_IDENTITY:-Driftflow Dev}"
-if security find-certificate -c "$IDENTITY" >/dev/null 2>&1; then
-    # Hardened runtime + mic entitlement: the same signature shape as shared/notarized builds.
+if ! security find-certificate -c "$IDENTITY" >/dev/null 2>&1; then IDENTITY="-"; fi
+# Sparkle's helpers first (inside out), then the app. Hardened runtime + mic entitlement: the same
+# signature shape as shared/notarized builds.
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+for part in XPCServices/Installer.xpc XPCServices/Downloader.xpc Autoupdate Updater.app; do
+    codesign --force --options runtime --preserve-metadata=entitlements --sign "$IDENTITY" "$SPARKLE/$part"
+done
+codesign --force --options runtime --sign "$IDENTITY" "$APP/Contents/Frameworks/Sparkle.framework"
+if [ "$IDENTITY" != "-" ]; then
     codesign --force --options runtime --entitlements Resources/Driftflow.entitlements \
         --sign "$IDENTITY" --identifier dev.driftflow.app "$APP"
     echo "Built $APP (signed as \"$IDENTITY\")"

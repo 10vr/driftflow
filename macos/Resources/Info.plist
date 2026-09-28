@@ -47,5 +47,16 @@
     <string>Driftflow listens to your voice while you hold the dictation key and transcribes it on this Mac.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Driftflow uses Apple's on-device speech models to turn your voice into text. Audio never leaves this Mac.</string>
+    <!-- Updates (Sparkle): release.sh publishes the app to GitHub Releases and lists it in this feed. -->
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/10vr/driftflow/main/updates/macos/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>b364dKbkuWHGIDvwIc5zWBkhLidUiT/GHXRnj9ROCJU=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUAutomaticallyUpdate</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
 </dict>
 </plist>

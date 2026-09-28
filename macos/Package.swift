@@ -7,12 +7,19 @@ let package = Package(
     dependencies: [
         // CoreML / Neural Engine ports of NVIDIA Parakeet. Pinned: the project releases every few days.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.4"),
+        // Auto-updates (the standard Mac updater).
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
     ],
     targets: [
         .executableTarget(
             name: "Driftflow",
-            dependencies: [.product(name: "FluidAudio", package: "FluidAudio")],
-            path: "Sources/Driftflow"
+            dependencies: [
+                .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
+            path: "Sources/Driftflow",
+            // Sparkle.framework is copied into Driftflow.app/Contents/Frameworks by build.sh.
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         )
     ],
     swiftLanguageModes: [.v5]
