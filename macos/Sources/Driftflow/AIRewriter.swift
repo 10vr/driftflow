@@ -104,7 +104,13 @@ final class AIRewriter {
     /// `text` in `style`, or nil to keep it as it is: no model, too long, too slow, or a result
     /// that doesn't look like a rewrite of what you said.
     func rewrite(_ text: String, style: AIStyle) async -> String? {
-        guard style != .literal, text.count >= 2, text.count <= Self.maxCharacters, isAvailable else { return nil }
+        guard style != .literal, text.count >= 2, text.count <= Self.maxCharacters else { return nil }
+        guard isAvailable else {
+            AppLog.info("Style \(style.rawValue): skipped, Apple Intelligence isn't available (\(availability))")
+            return nil
+        }
+        let started = Date()
+        func took() -> String { "\(Int(Date().timeIntervalSince(started) * 1000)) ms" }
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
             let session: LanguageModelSession
@@ -120,9 +126,15 @@ final class AIRewriter {
             let output = await Self.withTimeout(limit) {
                 try await session.respond(to: text, options: options).content
             }
-            guard let output else { return nil }
+            guard let output else {
+                AppLog.info("Style \(style.rawValue): no answer within \(limit), kept as said")
+                return nil
+            }
             let cleaned = Self.tidy(output)
-            return Self.acceptable(cleaned, for: text, style: style) ? cleaned : nil
+            let ok = Self.acceptable(cleaned, for: text, style: style)
+            // Outcome and timing only: neither the dictation nor the rewrite is logged.
+            AppLog.info("Style \(style.rawValue): \(ok ? "rewritten" : "rewrite rejected by the safety check, kept as said") in \(took())")
+            return ok ? cleaned : nil
         }
         #endif
         return nil
