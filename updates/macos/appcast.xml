@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.9</title>
+            <pubDate>Mon, 28 Sep 2026 08:16:18 GMT</pubDate>
+            <sparkle:version>202609281615</sparkle:version>
+            <sparkle:shortVersionString>0.2.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>A proper installer. Open the .dmg and drag Driftflow onto Applications. If Driftflow is opened from anywhere else, it offers to move itself to Applications.</p><p>The live preview now uses the same NVIDIA model as the final text, so what you see is exactly what gets typed. Apple Speech is still available under Settings › Models › Advanced.</p><p>The Professional and Casual styles now make a clearly visible difference, while still never answering or obeying what you dictate.</p><p>The Advanced sections in Settings are always open.</p><p>Copy Log now includes past sessions and summaries of recent crash reports, notes when a session ended unexpectedly, and Save Report… writes everything to a file.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.9/Driftflow-0.2.9-macOS.zip" type="application/octet-stream" sparkle:edSignature="8w4h4hZB6fI72BaYOeA/OVaEZI7MXa/KxzyKraxDFgCsis7CWz+QFqzYgeBNn+t1dQZol4u87dIOSCPkodxTBA==" length="13399339"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.8</title>
             <pubDate>Mon, 28 Sep 2026 07:46:46 GMT</pubDate>
             <sparkle:version>202609281546</sparkle:version>
