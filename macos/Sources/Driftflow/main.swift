@@ -164,6 +164,13 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
         exit(0)
     }
     dispatchMain()
+} else if arguments.contains("--log-test") {
+    // DRIFTFLOW_LOG_PATH=<scratch file> Driftflow --log-test: writes to that file, never the real log.
+    guard ProcessInfo.processInfo.environment["DRIFTFLOW_LOG_PATH"] != nil else { print("Set DRIFTFLOW_LOG_PATH"); exit(2) }
+    AppLog.info("Dictation started (hold · microphone Test Mic · in TextEdit)")
+    AppLog.error("Microphone disconnected: test")
+    print(AppLog.recent())
+    exit(0)
 } else if arguments.contains("--smart-test") {
     // Group C logic without a microphone: snippets, per-app rules, plain text, correction learning
     // and the AI Style answer check.

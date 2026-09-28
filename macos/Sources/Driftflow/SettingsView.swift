@@ -146,6 +146,20 @@ private struct GeneralPane: View {
 
             UpdatesSection()
 
+            Section {
+                LabeledContent("Log") {
+                    HStack {
+                        Button("Copy Log") { AppLog.copyToClipboard() }
+                        Button("Show in Finder") { AppLog.showInFinder() }
+                    }
+                }
+            } header: {
+                Text("Troubleshooting")
+            } footer: {
+                Text("If something goes wrong, Copy Log and paste it into your message (also in the menu bar menu). The log records what Driftflow did, never what you dictated.")
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Feedback") {
                 Toggle("Show live transcript", isOn: $settings.showHUD)
                 Picker("Position", selection: $settings.hudPosition) {

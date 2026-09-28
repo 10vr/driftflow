@@ -91,6 +91,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let updates = command("Check for Updates…") { Updater.shared.checkForUpdates() }
         updates.isEnabled = Updater.shared.canCheck
         menu.addItem(updates)
+        menu.addItem(command("Copy Log for Support") { AppLog.copyToClipboard() })
         menu.addItem(command("Quit Driftflow", shortcut: "⌘Q") { NSApp.terminate(nil) })
     }
 

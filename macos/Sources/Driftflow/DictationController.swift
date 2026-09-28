@@ -118,6 +118,8 @@ final class DictationController: ObservableObject {
     private init() {}
 
     func launch() {
+        AppLog.info("Started · \(AppLog.systemSummary) · microphone access \(Permissions.microphone) · "
+            + "accessibility \(AXIsProcessTrusted() ? "on" : "off") · model \(settings.modelPreference.rawValue)")
         if #available(macOS 26.0, *) {
             appleEngine?.onDownloadProgress = { [weak self] progress in
                 self?.downloadProgress = progress
@@ -475,6 +477,8 @@ final class DictationController: ObservableObject {
     }
 
     func showToast(_ toast: HUDToast, for seconds: TimeInterval = 5) {
+        // Vocabulary toasts quote a dictated word, so only their kind is logged.
+        AppLog.info("Notice: " + (toast.icon == "character.book.closed" || toast.text.contains("Vocabulary") ? "vocabulary suggestion" : toast.text))
         toastWork?.cancel()
         self.toast = toast
         if !hud.isVisible { hud.show(self, position: settings.hudPosition) }
@@ -611,6 +615,7 @@ final class DictationController: ObservableObject {
         scheduleSessionChecks(generation: generation)
         caretTask = settings.smartSpacing && accessibilityGranted ? Task { await CaretContext.capture() } : nil
         targetAppName = NSWorkspace.shared.frontmostApplication?.localizedName
+        AppLog.info("Dictation started (\(handsFree ? "hands-free" : "hold") · microphone \(microphoneName) · in \(targetAppName ?? "unknown app"))")
         corrections.stop()
         let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let readHost = accessibilityGranted && bundleID.map(DictationTarget.browsers.contains) == true
@@ -785,6 +790,9 @@ final class DictationController: ObservableObject {
                 }
                 inserted = deliver(text, context: context)
                 let latency = Self.milliseconds(clock.now - releasedAt)
+                // Length and timing only: what was said is never logged.
+                AppLog.info("Dictation finished: \(text.split(whereSeparator: \.isWhitespace).count) words, "
+                    + "\(inserted ? "inserted" : "not inserted") \(latency) ms after release")
                 if inserted {
                     lastLatencyMs = latency
                     if rules.pressReturn {
@@ -818,6 +826,7 @@ final class DictationController: ObservableObject {
     /// Cancels the current dictation immediately, even if the model is still loading.
     private func abort() {
         guard phase != .idle else { return }
+        AppLog.info("Dictation cancelled")
         feedbackWork?.cancel()
         feedbackWork = nil
         generation += 1
@@ -1156,6 +1165,7 @@ final class DictationController: ObservableObject {
     }
 
     private func show(error message: String) {
+        AppLog.error(message)
         lastError = message
         statusMessage = message
         showHUD()

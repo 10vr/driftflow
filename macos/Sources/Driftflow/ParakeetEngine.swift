@@ -53,6 +53,8 @@ actor ParakeetEngine {
 
         state = .loading
         backend = nil
+        let started = Date()
+        AppLog.info("Loading speech model \(model.rawValue)")
         let task = Task {
             onProgress(0)
             defer { onProgress(nil) }
@@ -81,9 +83,11 @@ actor ParakeetEngine {
         do {
             try await task.value
             if loadTask == task { loadTask = nil }
+            AppLog.info("Loaded \(model.rawValue) in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
         } catch {
             if loadTask == task { loadTask = nil }
             state = .failed(error.localizedDescription)
+            AppLog.error("Couldn't load \(model.rawValue): \(error.localizedDescription)")
             throw error
         }
     }

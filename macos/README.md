@@ -195,6 +195,7 @@ HotKeyMonitor (left/right-aware modifiers or a Carbon hot key)
 - `open -n -a Driftflow --args --hud-demo <dir>`: captures the pill over black and white backdrops, appearing and with the ✕/✓ buttons (`DRIFTFLOW_GLASS=regular` shows the old adaptive glass).
 - `Driftflow --login-status`: whether macOS will open Driftflow at login.
 - `Driftflow --mic-priority-test`: which microphone the priority list picks, with this Mac's real devices.
+- `DRIFTFLOW_LOG_PATH=<scratch file> Driftflow --log-test`: writes two lines through the support log and prints what Copy Log would copy (never touches the real log in `~/Library/Logs/Driftflow`).
 - `Driftflow --smart-test`: snippets, app/website rules, plain text, correction learning and the AI Style answer check (33 cases).
 - `Driftflow --style-test TestData/styles.txt [clean|professional|casual]`: 37 dictations (questions, requests, prompt injections, self-corrections) through the real AI Style rewrite, with timings.
 - `Driftflow --edit-test`: voice editing's rewrite on typical instructions.
