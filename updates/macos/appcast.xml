@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.11</title>
+            <pubDate>Mon, 28 Sep 2026 12:19:13 GMT</pubDate>
+            <sparkle:version>202609282018</sparkle:version>
+            <sparkle:shortVersionString>0.2.11</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Dictating into Jump Desktop, Microsoft Remote Desktop, Screen Sharing and other remote-desktop apps pastes what you said, instead of whatever was last copied on the remote computer.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.11/Driftflow-0.2.11-macOS.zip" type="application/octet-stream" sparkle:edSignature="SLf/VhiKKz3NBDENWsMiA1EvY0EbrK60054mpazb1Xi0S4V8RrGFJOSoQAQyCVhrCYVrYh4ilfXPeSxntVU8DQ==" length="13405900"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.10</title>
             <pubDate>Mon, 28 Sep 2026 09:55:06 GMT</pubDate>
             <sparkle:version>202609281753</sparkle:version>
