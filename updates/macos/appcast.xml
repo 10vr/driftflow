@@ -6,5 +6,14 @@
         <link>https://github.com/10vr/driftflow/releases</link>
         <language>en</language>
         <!-- releases, newest first -->
+        <item>
+            <title>Driftflow 0.2.0</title>
+            <pubDate>Mon, 28 Sep 2026 05:37:36 GMT</pubDate>
+            <sparkle:version>202609281337</sparkle:version>
+            <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>The first public release of Driftflow for Mac: on-device dictation for Apple Silicon Macs (macOS 15 or later).</p><p>Hold Right ⌘ to dictate and release to insert; tap it once for hands-free. Nothing leaves your Mac.</p><p>From this version on, Driftflow updates itself.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/mac-v0.2.0/Driftflow-0.2.0.zip" type="application/octet-stream" sparkle:edSignature="/vIqPXtxnrThuQgC0cyncxWbylSGak0zudXad8bXFimGA+YxOadfzBxb4KAjDYWhX0jYfClH0s5132kFIaRKCQ==" length="13349461"/>
+        </item>
     </channel>
 </rss>
