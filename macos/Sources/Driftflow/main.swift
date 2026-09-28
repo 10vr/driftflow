@@ -175,6 +175,11 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
             if !pass { failures += 1 }
             print(pass ? "PASS" : "FAIL", name, pass ? "" : "(got \"\(got)\", want \"\(want)\")")
         }
+        let named = TextProcessor(vocabulary: ["Driftflow"])
+        for spoken in ["I use drift flow daily.", "I use Drift-Flow daily.", "I use DriftFlow daily."] {
+            check("app name: \(spoken)", named.process(spoken), "I use Driftflow daily.")
+        }
+        check("app name: built in", AppSettings.shared.spellingTerms.contains("Driftflow"), true)
         let sig = Snippet(trigger: "my signature", text: "Best,\nAlex")
         let addr = Snippet(trigger: "Office address", text: "12 Main St")
         check("snippet: whole phrase", Snippet.match("My signature.", in: [sig, addr])?.text ?? "-", sig.text)

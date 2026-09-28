@@ -22,12 +22,19 @@ final class OnboardingWindow {
         }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 580),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        // An empty unified toolbar gives the window a full-height title bar, so the close,
+        // minimise and zoom buttons sit inset from the corner like other Mac apps' windows.
+        let toolbar = NSToolbar(identifier: "onboarding")
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
+        window.contentMinSize = NSSize(width: 900, height: 580)
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: OnboardingView(controller: controller, settings: .shared) { [weak window] in

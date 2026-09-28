@@ -84,8 +84,21 @@ struct SettingsView: View {
             .navigationTitle((router.pane ?? .general).title)
             .navigationSubtitle((router.pane ?? .general).subtitle)
         }
-        .frame(width: 780, height: 600)
+        .frame(minWidth: 780, idealWidth: 780, minHeight: 600, idealHeight: 600)
+        .background(StandardWindowButtons())
     }
+}
+
+/// Gives the window it's placed in working minimise and zoom buttons (SwiftUI's Settings window
+/// comes without them).
+private struct StandardWindowButtons: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { view.window?.styleMask.insert([.miniaturizable, .resizable]) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 private struct GeneralPane: View {

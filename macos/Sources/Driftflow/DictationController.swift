@@ -766,7 +766,7 @@ final class DictationController: ObservableObject {
                         guard generation == self.generation else { return }
                         text = settings.textProcessor.applyVocabularyAndReplacements(polished)
                     }
-                    if rules.plainText { text = TextProcessor.plain(text, vocabulary: settings.vocabularyTerms) }
+                    if rules.plainText { text = TextProcessor.plain(text, vocabulary: settings.spellingTerms) }
                 }
                 var context = await caretTask?.value ?? .unknown
                 guard generation == self.generation else { return } // Esc while we waited
@@ -946,7 +946,7 @@ final class DictationController: ObservableObject {
     /// After a dictation: if you correct a word in it into a name or term, offer to add it to Vocabulary.
     private func learnFromCorrections(to text: String) {
         guard settings.learnCorrections, accessibilityGranted else { return }
-        corrections.watch(inserted: text, vocabulary: settings.vocabularyTerms) { [weak self] term in
+        corrections.watch(inserted: text, vocabulary: settings.spellingTerms) { [weak self] term in
             guard let self, self.phase == .idle else { return }
             self.showToast(HUDToast(icon: "character.book.closed", text: "Add “\(term)” to your Vocabulary?",
                                     action: .addToVocabulary(term)), for: 8)

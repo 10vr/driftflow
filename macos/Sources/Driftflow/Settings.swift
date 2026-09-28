@@ -253,13 +253,21 @@ final class AppSettings: ObservableObject {
             .filter { !$0.isEmpty }
     }
 
+    /// Your terms plus the app's own name, so "drift flow", "Drift-Flow" or "DriftFlow" is always
+    /// written "Driftflow". (Spelling only: the name isn't added to recognition boosting, which
+    /// would make everyone download its helper model.)
+    var spellingTerms: [String] {
+        let terms = vocabularyTerms
+        return terms.contains { $0.caseInsensitiveCompare("Driftflow") == .orderedSame } ? terms : terms + ["Driftflow"]
+    }
+
     var textProcessor: TextProcessor {
         let pairs = replacements.split(whereSeparator: \.isNewline).compactMap { line -> (String, String)? in
             let parts = line.components(separatedBy: "=>")
             guard parts.count == 2 else { return nil }
             return (parts[0].trimmingCharacters(in: .whitespaces), parts[1].trimmingCharacters(in: .whitespaces))
         }
-        return TextProcessor(removeFillers: removeFillers, spokenCommands: spokenCommands, replacements: pairs, vocabulary: vocabularyTerms)
+        return TextProcessor(removeFillers: removeFillers, spokenCommands: spokenCommands, replacements: pairs, vocabulary: spellingTerms)
     }
 
     var engineConfig: SpeechConfig {

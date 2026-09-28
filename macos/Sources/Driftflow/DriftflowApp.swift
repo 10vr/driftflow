@@ -12,6 +12,7 @@ struct DriftflowApp: App {
         Settings {
             SettingsView(controller: controller, settings: settings)
         }
+        .windowResizability(.contentMinSize)
     }
 }
 
