@@ -1,5 +1,6 @@
 import Accelerate
 @preconcurrency import AVFoundation
+import ObjCSupport
 import os
 
 /// Microphone capture built for zero-latency starts.
@@ -11,8 +12,14 @@ import os
 final class AudioCapture: @unchecked Sendable {
     enum CaptureError: LocalizedError {
         case noInputDevice
+        case couldNotListen(String)
 
-        var errorDescription: String? { "No microphone is available." }
+        var errorDescription: String? {
+            switch self {
+            case .noInputDevice: "No microphone is available."
+            case .couldNotListen(let reason): "The microphone couldn't be opened (\(reason))."
+            }
+        }
     }
 
     private let engine = AVAudioEngine()
@@ -61,7 +68,13 @@ final class AudioCapture: @unchecked Sendable {
         guard !isRunning else { return }
         let input = engine.inputNode
         selectDevice(input)
-        let format = input.outputFormat(forBus: 0)
+        // The chosen microphone's own format. After switching devices, the node's output format
+        // can still describe the previous microphone; a tap at the wrong sample rate makes
+        // AVAudioEngine raise an exception (a crash on Macs whose mics run at different rates).
+        let hardware = input.inputFormat(forBus: 0)
+        let output = input.outputFormat(forBus: 0)
+        let format = hardware.sampleRate > 0 && hardware.channelCount > 0 && hardware.sampleRate != output.sampleRate
+            ? hardware : output
         guard format.channelCount > 0, format.sampleRate > 0 else { throw CaptureError.noInputDevice }
 
         coldStartBegan = DispatchTime.now().uptimeNanoseconds
@@ -70,8 +83,15 @@ final class AudioCapture: @unchecked Sendable {
             $0.preroll.removeAll()
             $0.prerollFrames = 0
         }
-        input.installTap(onBus: 0, bufferSize: 512, format: format) { [weak self] buffer, _ in
-            self?.receive(buffer)
+        // installTap reports problems by raising an exception: turn it into an error instead.
+        if let problem = DFCatchException({
+            input.installTap(onBus: 0, bufferSize: 512, format: format) { [weak self] buffer, _ in
+                self?.receive(buffer)
+            }
+        }) {
+            AppLog.error("Couldn't listen to the microphone (\(format.sampleRate) Hz, \(format.channelCount) ch): \(problem.localizedDescription)")
+            _ = DFCatchException { input.removeTap(onBus: 0) }
+            throw CaptureError.couldNotListen(problem.localizedDescription)
         }
         engine.prepare()
         do {

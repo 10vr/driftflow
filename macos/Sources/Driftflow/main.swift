@@ -1,3 +1,4 @@
+import ObjCSupport
 import AVFoundation
 import Foundation
 import ServiceManagement
@@ -182,6 +183,17 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
             if !pass { failures += 1 }
             print(pass ? "PASS" : "FAIL", name, pass ? "" : "(got \"\(got)\", want \"\(want)\")")
         }
+        // AVAudioEngine raises an Objective-C exception for a bad tap (the crash in onboarding's
+        // microphone meter); it must come back as an error. A second tap on one bus raises it.
+        let engine = AVAudioEngine()
+        let mixer = engine.mainMixerNode
+        let mixerFormat = mixer.outputFormat(forBus: 0)
+        let first = DFCatchException { mixer.installTap(onBus: 0, bufferSize: 512, format: mixerFormat) { _, _ in } }
+        let second = DFCatchException { mixer.installTap(onBus: 0, bufferSize: 512, format: mixerFormat) { _, _ in } }
+        check("audio: a good tap installs", first == nil, true)
+        check("audio: an engine exception becomes an error", second != nil, true)
+        mixer.removeTap(onBus: 0)
+
         let named = TextProcessor(vocabulary: ["Driftflow"])
         for spoken in ["I use drift flow daily.", "I use Drift-Flow daily.", "I use DriftFlow daily."] {
             check("app name: \(spoken)", named.process(spoken), "I use Driftflow daily.")

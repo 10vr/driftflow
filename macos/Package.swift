@@ -11,9 +11,12 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
     ],
     targets: [
+        // Catches Objective-C exceptions from Apple APIs that report errors that way (see ObjCSupport.h).
+        .target(name: "ObjCSupport", path: "Sources/ObjCSupport"),
         .executableTarget(
             name: "Driftflow",
             dependencies: [
+                "ObjCSupport",
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
