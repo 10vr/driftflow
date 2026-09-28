@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.2</title>
+            <pubDate>Mon, 28 Sep 2026 06:19:39 GMT</pubDate>
+            <sparkle:version>202609281419</sparkle:version>
+            <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Windows: the first-run setup no longer gets stuck after the speech model downloads. If the graphics card crashes or hangs while loading the model, Driftflow switches to the processor, and Quit always quits.</p><p>Windows: errors show on screen with a Copy Error button, and Settings › Models lets you choose graphics card or processor.</p><p>Windows: audio is only kept for dictations that fail (for a day), history is kept for 30 days, and Driftflow opens at login.</p><p>Windows: the installer now carries the Driftflow look.</p><p>Both apps are now released together on one page.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.2/Driftflow-0.2.2-macOS.zip" type="application/octet-stream" sparkle:edSignature="p4QcO4cG8jWtTdHAxZ07RN81rsgwxK6W5g1ytfIjSuHy0lXW+gMi7DOknMFQHCIdD0RbHP3InozQAzCjl4oFBA==" length="13349466"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.0</title>
             <pubDate>Mon, 28 Sep 2026 05:37:36 GMT</pubDate>
             <sparkle:version>202609281337</sparkle:version>
