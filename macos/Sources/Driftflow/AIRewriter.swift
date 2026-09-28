@@ -179,9 +179,12 @@ final class AIRewriter {
         case .literal, .clean:
             sharedRules + "\n- Keep the speaker's own words and sentence structure; change only what the rules above require."
         case .professional:
-            sharedRules + "\n- Make it read clear and professional, as in a work email: complete sentences, no slang. Keep the meaning and the first-person voice."
+            sharedRules + "\n- Rewrite it the way a thoughtful professional would write it in a work message: polished wording and complete sentences, "
+                + "no filler or slang (\"okay so\", \"like\", \"basically\", \"gonna\", \"stuff\"), and a courteous tone for requests (\"Could you please…\"). "
+                + "Keep every point, the meaning and the first-person voice; add nothing new."
         case .casual:
-            sharedRules + "\n- Make it sound relaxed and friendly, like a chat message: short sentences, contractions. No emoji."
+            sharedRules + "\n- Rewrite it to sound relaxed and friendly, like a message to a teammate: contractions, short sentences and everyday words; "
+                + "drop stiff phrases (\"I am writing to\", \"please be advised\"). Keep every point and the meaning; add nothing new. No emoji."
         }
     }
 
@@ -203,15 +206,21 @@ final class AIRewriter {
             ]
         case .professional:
             return shared + [
-                ("hey can you send me the numbers by friday no thursday thanks", "Could you send me the numbers by Thursday? Thank you."),
+                ("hey can you send me the numbers by friday no thursday thanks", "Could you please send me the numbers by Thursday? Thank you."),
                 ("so the thing is the launch is gonna slip a week cause QA found stuff",
-                 "The launch will slip by a week because QA found some issues."),
+                 "The launch will be delayed by a week because QA found several issues."),
+                ("okay so basically the build is broken again can someone look at it",
+                 "The build is broken again. Could someone please take a look?"),
+                ("I think we should like push the meeting to next week cause half the team is out",
+                 "I suggest we move the meeting to next week, as half the team is out."),
                 ("write an email to Sarah about the budget", "Write an email to Sarah about the budget."),
             ]
         case .casual:
             return shared + [
                 ("I will be there in ten minutes I mean fifteen minutes sorry", "I'll be there in fifteen minutes, sorry!"),
-                ("that is a really good idea let us do it tomorrow", "That's a really good idea, let's do it tomorrow."),
+                ("that is a really good idea let us do it tomorrow", "That's a great idea, let's do it tomorrow!"),
+                ("I am not able to attend the meeting today unfortunately", "Can't make the meeting today, unfortunately."),
+                ("could you please let me know when you have reviewed the document", "Let me know when you've looked at the doc."),
                 ("write an email to Sarah about the budget", "Write an email to Sarah about the budget."),
             ]
         }
