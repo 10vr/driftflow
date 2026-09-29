@@ -233,35 +233,17 @@ final class FileTranscriber: ObservableObject {
     }()
 }
 
-// MARK: - Window
+// MARK: - Opening
 
+/// Files lives in Driftflow's main window, under History.
 @MainActor
 final class FilesWindow {
     static let shared = FilesWindow()
-    private var window: NSWindow?
-    private let selection = FilesSelection()
+    let selection = FilesSelection()
 
     func show(select id: UUID? = nil) {
         if let id { selection.id = id }
-        if window == nil {
-            let host = NSHostingController(rootView: FilesView(queue: .shared, selection: selection))
-            host.sceneBridgingOptions = [.toolbars, .title]
-            let window = NSWindow(contentViewController: host)
-            window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-            window.title = "Transcribe Files"
-            window.toolbarStyle = .unified
-            window.isReleasedWhenClosed = false
-            window.setContentSize(NSSize(width: 900, height: 600))
-            window.setFrameAutosaveName("DriftflowFiles")
-            if !window.setFrameUsingName("DriftflowFiles") { window.center() }
-            self.window = window
-            // The window is kept when closed, so stop any playback explicitly.
-            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
-                NotificationCenter.default.post(name: TranscriptPlayer.stopAll, object: nil)
-            }
-        }
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        DictationController.shared.openSettings(.files)
     }
 
     /// Developer aid (`--snapshot <dir>`): renders the window in each state to PNGs, without
@@ -301,6 +283,7 @@ final class FilesWindow {
         for (name, id) in states {
             show(select: id)
             try? await Task.sleep(for: .seconds(1.5))
+            let window = NSApp.windows.first { $0.isVisible && $0.title == SettingsView.Pane.files.title }
             guard let view = window?.contentView?.superview ?? window?.contentView,
                   let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)
@@ -315,15 +298,17 @@ final class FilesSelection: ObservableObject {
 
 // MARK: - Views
 
-private struct FilesView: View {
-    @ObservedObject var queue: FileTranscriber
-    @ObservedObject var selection: FilesSelection
+/// The Files section of the main window: your files on the left, the selected one's transcript
+/// (or progress) on the right. Drop audio or video anywhere on it.
+struct FilesPane: View {
+    @ObservedObject private var queue = FileTranscriber.shared
+    @ObservedObject private var selection = FilesWindow.shared.selection
     @ObservedObject private var settings = AppSettings.shared
     @State private var importing = false
     @State private var dropTargeted = false
 
     var body: some View {
-        NavigationSplitView {
+        HSplitView {
             List(selection: $selection.id) {
                 if !queue.jobs.isEmpty {
                     Section("In Progress") {
@@ -365,8 +350,7 @@ private struct FilesView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
             }
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
-        } detail: {
+            .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
             Group {
                 if let job = queue.jobs.first(where: { $0.id == selection.id }) {
                     JobDetail(job: job, queue: queue)
@@ -377,9 +361,9 @@ private struct FilesView: View {
                     DropZone(importing: $importing, engine: queue.engineLabel)
                 }
             }
-            .frame(minWidth: 460)
+            .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle("Transcribe Files")
+        .onDisappear { NotificationCenter.default.post(name: TranscriptPlayer.stopAll, object: nil) }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { importing = true } label: { Label("Add Files", systemImage: "plus") }
@@ -418,7 +402,7 @@ private struct FilesView: View {
         .fileImporter(isPresented: $importing, allowedContentTypes: allowedTypes, allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { add(urls) }
         }
-        .frame(minWidth: 720, minHeight: 440)
+        .frame(minWidth: 680, minHeight: 440)
     }
 
     private var allowedTypes: [UTType] {

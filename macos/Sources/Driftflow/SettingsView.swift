@@ -3,7 +3,7 @@ import Carbon.HIToolbox
 import ServiceManagement
 import SwiftUI
 
-/// Which Settings pane is showing, so the menu can open Settings at History or Models.
+/// Which section of the main window is showing, so the menu can open it at History, Files or Models.
 @MainActor
 final class SettingsRouter: ObservableObject {
     static let shared = SettingsRouter()
@@ -16,7 +16,12 @@ struct SettingsView: View {
     @ObservedObject private var router = SettingsRouter.shared
 
     enum Pane: String, CaseIterable, Identifiable {
-        case general, shortcuts, models, output, styles, vocabulary, history, permissions
+        /// Your dictations and transcribed files, above the settings.
+        case history, files
+        case general, shortcuts, models, output, styles, vocabulary, permissions
+
+        static let content: [Pane] = [.history, .files]
+        static let settings: [Pane] = [.general, .shortcuts, .models, .output, .styles, .vocabulary, .permissions]
 
         var id: String { rawValue }
 
@@ -29,6 +34,7 @@ struct SettingsView: View {
             case .styles: "Styles"
             case .vocabulary: "Vocabulary"
             case .history: "History"
+            case .files: "Files"
             case .permissions: "Permissions"
             }
         }
@@ -43,6 +49,7 @@ struct SettingsView: View {
             case .styles: "On-device AI rewriting, and rules for each app or website"
             case .vocabulary: "Names, jargon, replacements and snippets"
             case .history: "Everything you've dictated, kept on this Mac"
+            case .files: "Transcripts of audio and video files, made on this Mac"
             case .permissions: "What Driftflow needs, and why"
             }
         }
@@ -56,6 +63,7 @@ struct SettingsView: View {
             case .styles: "wand.and.sparkles"
             case .vocabulary: "character.book.closed"
             case .history: "clock.arrow.circlepath"
+            case .files: "waveform"
             case .permissions: "lock.shield"
             }
         }
@@ -63,8 +71,13 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(Pane.allCases, selection: $router.pane) { pane in
-                Label(pane.title, systemImage: pane.icon).tag(pane)
+            List(selection: $router.pane) {
+                Section {
+                    ForEach(Pane.content) { Label($0.title, systemImage: $0.icon).tag($0) }
+                }
+                Section("Settings") {
+                    ForEach(Pane.settings) { Label($0.title, systemImage: $0.icon).tag($0) }
+                }
             }
             .navigationSplitViewColumnWidth(180)
         } detail: {
@@ -77,6 +90,7 @@ struct SettingsView: View {
                 case .styles: StylesPane(settings: settings)
                 case .vocabulary: VocabularyPane(settings: settings)
                 case .history: HistoryPane(settings: settings)
+                case .files: FilesPane()
                 case .permissions: PermissionsPane(controller: controller)
                 }
             }
