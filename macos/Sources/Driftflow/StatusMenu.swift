@@ -22,14 +22,40 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         item.menu = menu
         self.item = item
         controller.$phase
-            .sink { [weak self] phase in self?.updateIcon(listening: phase != .idle) }
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshIcon() } }
             .store(in: &cancellables)
     }
 
-    private func updateIcon(listening: Bool) {
-        let image = NSImage(systemSymbolName: listening ? "waveform.circle.fill" : "waveform", accessibilityDescription: "Driftflow")
-        image?.isTemplate = true
-        item?.button?.image = image
+    /// The waveform, filled while listening, with a blue dot while an update waits to be installed.
+    func refreshIcon() {
+        let listening = controller.phase != .idle
+        let symbol = NSImage(systemSymbolName: listening ? "waveform.circle.fill" : "waveform", accessibilityDescription: "Driftflow")
+        guard Updater.shared.readyVersion != nil, !listening, let symbol else {
+            symbol?.isTemplate = true
+            item?.button?.image = symbol
+            item?.button?.toolTip = nil
+            return
+        }
+        // Drawn when shown, so the waveform takes the menu bar's own colour (light or dark).
+        let size = NSSize(width: 18, height: 16)
+        let badged = NSImage(size: size, flipped: false) { rect in
+            let glyph = NSRect(x: 0, y: (rect.height - 14) / 2, width: 15, height: 14)
+            let tinted = NSImage(size: glyph.size, flipped: false) { inner in
+                symbol.draw(in: inner)
+                NSColor.labelColor.set()
+                inner.fill(using: .sourceAtop)
+                return true
+            }
+            tinted.draw(in: glyph)
+            let dot = NSRect(x: rect.width - 7, y: rect.height - 7, width: 7, height: 7)
+            NSColor.systemBlue.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+            return true
+        }
+        badged.isTemplate = false
+        badged.accessibilityDescription = "Driftflow, update ready"
+        item?.button?.image = badged
+        item?.button?.toolTip = "Driftflow \(Updater.shared.readyVersion ?? "") is ready to install"
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -44,6 +70,18 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let history = HistoryStore.shared
         let hasDictations = history.entries.contains { $0.status == nil }
         let setupNeeded = !controller.accessibilityGranted || Permissions.microphone != .authorized
+
+        if let version = Updater.shared.readyVersion {
+            let update = command("Restart to Update to \(version)") { Updater.shared.installNow() }
+            update.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(paletteColors: [.white, .systemBlue]))
+            update.attributedTitle = NSAttributedString(string: update.title, attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)])
+            menu.addItem(update)
+            let note = NSMenuItem(title: "Installs by itself when your Mac is idle", action: nil, keyEquivalent: "")
+            note.isEnabled = false
+            menu.addItem(note)
+            menu.addItem(.separator())
+        }
 
         // Only when something needs your attention; the shortcuts sit next to their commands.
         if let status = statusLine(setupNeeded: setupNeeded) {

@@ -167,6 +167,7 @@ struct HUDToast: Equatable {
         case chooseMicrophone
         case openHistory
         case addToVocabulary(String)
+        case installUpdate
     }
 
     var id = UUID()
@@ -179,6 +180,7 @@ struct HUDToast: Equatable {
         case .chooseMicrophone: "Change Microphone"
         case .openHistory: "View History"
         case .addToVocabulary: "Add"
+        case .installUpdate: "Restart Now"
         case nil: nil
         }
     }

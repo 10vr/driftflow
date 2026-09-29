@@ -52,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if CommandLine.arguments.contains("--demo") {
             Task { await DictationController.shared.runDemo() }
         } else if ["--snapshot", "--mic-test", "--perf-test"].contains(where: CommandLine.arguments.contains) {
+            // A developer run never outlives its job, even if a step hangs.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 120) { exit(3) }
             // Developer runs: no hot keys or dictation, so they can't interfere with the real app.
         } else {
             DictationController.shared.launch()
@@ -76,6 +78,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task {
                 await FilesWindow.shared.snapshotSettings(to: directory)
                 await FilesWindow.shared.snapshot(to: directory)
+                UpdateWindow.shared.show(version: "9.9.9", notes: "Transcribing files is up to 4× faster on long recordings.\nFiles now lives in the main window, next to History.")
+                try? await Task.sleep(for: .seconds(1))
+                FilesWindow.capture(UpdateWindow.shared.window, to: directory.appendingPathComponent("update-window.png"))
                 NSApp.terminate(nil) // a developer run: don't stay alive next to the real app
             }
         }
