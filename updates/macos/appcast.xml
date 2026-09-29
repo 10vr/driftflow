@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.14</title>
+            <pubDate>Tue, 29 Sep 2026 09:33:41 GMT</pubDate>
+            <sparkle:version>202609291733</sparkle:version>
+            <sparkle:shortVersionString>0.2.14</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Tidier Files layout: no line through the title, a compact transcript header with the play time showing, and the window widens to fit.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.14/Driftflow-0.2.14-macOS.zip" type="application/octet-stream" sparkle:edSignature="0VAqFRdTUwXzLcy5QNbwMZRqpViraN0Hi89AtUcc/ab6pOA0xqstf/yEknlzQMVP9WnIQPiBqF9olgUlSDiVBw==" length="13438305"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.13</title>
             <pubDate>Tue, 29 Sep 2026 08:49:47 GMT</pubDate>
             <sparkle:version>202609291649</sparkle:version>
