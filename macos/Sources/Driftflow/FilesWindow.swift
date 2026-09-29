@@ -5,8 +5,8 @@ import UniformTypeIdentifiers
 
 // MARK: - Queue
 
-/// Transcribes dropped audio and video files one after another with the model chosen for dictation,
-/// and keeps the finished transcripts in ~/Library/Application Support/Driftflow/transcripts.json.
+/// Transcribes dropped audio and video files one after another, with the model chosen for dictation
+/// or one picked for files (or for a single file), and keeps the finished transcripts in ~/Library/Application Support/Driftflow/transcripts.json.
 @MainActor
 final class FileTranscriber: ObservableObject {
     static let shared = FileTranscriber()
@@ -20,6 +20,8 @@ final class FileTranscriber: ObservableObject {
         var running = false
         var failure: String?
         var engine: String?
+        /// This file's own model ("Transcribe Again With"); nil = the files model.
+        var model: AccuracyModel?
 
         var fraction: Double? {
             guard let duration, duration > 0 else { return nil }
@@ -31,6 +33,13 @@ final class FileTranscriber: ObservableObject {
     @Published private(set) var transcripts: [FileTranscript] = []
     /// Shown briefly when something dropped isn't audio or video.
     @Published var notice: String?
+    /// The model for files; nil = the one chosen for dictation.
+    @Published var model: AccuracyModel? {
+        didSet { UserDefaults.standard.set(model?.rawValue ?? "", forKey: "filesModel") }
+    }
+    /// A second engine, for files using another Parakeet model than dictation (which keeps its own
+    /// loaded). Released when the queue is done, to give the memory back.
+    private var filesParakeet: ParakeetEngine?
 
     private var worker: Task<Void, Never>?
     private var running: (id: UUID, task: Task<[TranscriptSegment], Error>)?
@@ -46,6 +55,7 @@ final class FileTranscriber: ObservableObject {
             .appendingPathComponent("Driftflow", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("transcripts.json")
+        model = AccuracyModel(rawValue: UserDefaults.standard.string(forKey: "filesModel") ?? "")
         if let data = try? Data(contentsOf: fileURL) {
             if let saved = try? Self.decoder.decode([FileTranscript].self, from: data) {
                 transcripts = saved
@@ -67,14 +77,36 @@ final class FileTranscriber: ObservableObject {
     var engineLabel: String {
         let settings = AppSettings.shared
         let language = Locale.current.localizedString(forLanguageCode: settings.language) ?? settings.language
-        let model = settings.accuracyModel != .apple && settings.accuracyModel.supports(language: settings.language)
-            ? settings.accuracyModel.displayName : "Apple Speech"
-        return "\(model) · \(language)"
+        let wanted = model ?? settings.accuracyModel
+        return "\(isUsable(wanted) ? wanted.displayName : AccuracyModel.apple.displayName) · \(language)"
+    }
+
+    /// Whether `model` can transcribe files now: downloaded, and it knows the dictation language.
+    func isUsable(_ model: AccuracyModel) -> Bool {
+        model.supports(language: AppSettings.shared.language) && ModelManager.shared.isDownloaded(model)
+    }
+
+    /// Why `model` can't be picked, for the menus ("Not downloaded").
+    func unusableReason(_ model: AccuracyModel) -> String? {
+        let settings = AppSettings.shared
+        if !model.supports(language: settings.language) {
+            return "No \(Locale.current.localizedString(forLanguageCode: settings.language) ?? settings.language)"
+        }
+        return ModelManager.shared.isDownloaded(model) ? nil : "Not downloaded"
+    }
+
+    /// Transcribes a file again, with another model; the new transcript sits next to the old one.
+    func transcribeAgain(_ transcript: FileTranscript, with model: AccuracyModel) {
+        guard FileManager.default.fileExists(atPath: transcript.path) else {
+            notice = "“\(transcript.fileName)” was moved or deleted, so it can't be transcribed again."
+            return
+        }
+        if let id = add([transcript.url], model: model) { FilesWindow.shared.selection.id = id }
     }
 
     /// Queues files (folders are searched for audio and video). Returns the first new job's id.
     @discardableResult
-    func add(_ urls: [URL]) -> UUID? {
+    func add(_ urls: [URL], model: AccuracyModel? = nil) -> UUID? {
         var files: [URL] = []
         var skipped = 0
         for url in urls {
@@ -93,7 +125,7 @@ final class FileTranscriber: ObservableObject {
             }
         }
         notice = skipped > 0 ? "\(skipped) item\(skipped == 1 ? " isn't" : "s aren't") audio or video, so \(skipped == 1 ? "it was" : "they were") skipped." : nil
-        let new = files.map { Job(url: $0) }
+        let new = files.map { Job(url: $0, model: model) }
         jobs += new
         for job in new {
             Task {
@@ -129,13 +161,14 @@ final class FileTranscriber: ObservableObject {
             while let job = jobs.first(where: { !$0.running && $0.failure == nil }) {
                 await run(job)
             }
+            filesParakeet = nil
             worker = nil
         }
     }
 
     private func run(_ job: Job) async {
         update(job.id) { $0.running = true }
-        let (engine, label) = await chooseEngine()
+        let (engine, label) = await chooseEngine(job.model ?? model)
         guard jobs.contains(where: { $0.id == job.id }) else { return } // cancelled while the model loaded
         update(job.id) { $0.engine = label }
         let clock = ContinuousClock()
@@ -188,15 +221,32 @@ final class FileTranscriber: ObservableObject {
         }
     }
 
-    private func chooseEngine() async -> (FileTranscription.Engine, String) {
+    /// The engine for `choice` (nil = dictation's model). Falls back to Apple Speech when that
+    /// model can't be used.
+    private func chooseEngine(_ choice: AccuracyModel?) async -> (FileTranscription.Engine, String) {
         let settings = AppSettings.shared
         let language = Locale.current.localizedString(forLanguageCode: settings.language) ?? settings.language
-        let parakeet = DictationController.shared.parakeet
-        if settings.accuracyModel != .apple, settings.accuracyModel.supports(language: settings.language) {
+        let wanted = choice ?? settings.accuracyModel
+        if wanted != .apple, isUsable(wanted) {
+            let dictation = DictationController.shared.parakeet
             // The model may still be loading right after launch.
-            while await parakeet.isLoading { try? await Task.sleep(for: .milliseconds(200)) }
-            if let model = await parakeet.model, model == settings.accuracyModel {
-                return (.parakeet(parakeet, model), "\(model.displayName) · \(language)")
+            while await dictation.isLoading { try? await Task.sleep(for: .milliseconds(200)) }
+            if await dictation.model == wanted {
+                return (.parakeet(dictation, wanted), "\(wanted.displayName) · \(language)")
+            }
+            // Another model than dictation's: load it separately, so dictation stays instant.
+            let engine = filesParakeet ?? ParakeetEngine()
+            filesParakeet = engine
+            do {
+                if await engine.model != wanted {
+                    await engine.setVocabulary(settings.vocabularyTerms)
+                    try await engine.load(wanted) { _ in }
+                }
+                if await engine.model == wanted {
+                    return (.parakeet(engine, wanted), "\(wanted.displayName) · \(language)")
+                }
+            } catch {
+                AppLog.error("Couldn't load \(wanted.rawValue) for files: \(error.localizedDescription)")
             }
         }
         return (.apple(settings.engineConfig), "Apple Speech · \(language)")
@@ -327,6 +377,7 @@ struct FilesPane: View {
                                 .contextMenu {
                                     Button("Copy Text") { TextInserter.shared.copy(transcript.text) }
                                     Button("Show Original in Finder") { NSWorkspace.shared.activateFileViewerSelecting([transcript.url]) }
+                                    TranscribeAgainMenu(transcript: transcript)
                                     Divider()
                                     Button("Delete Transcript", role: .destructive) { queue.delete(transcript) }
                                 }
@@ -365,6 +416,9 @@ struct FilesPane: View {
         }
         .onDisappear { NotificationCenter.default.post(name: TranscriptPlayer.stopAll, object: nil) }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                FilesModelPicker(queue: queue)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button { importing = true } label: { Label("Add Files", systemImage: "plus") }
                     .help("Add audio or video files")
@@ -468,6 +522,56 @@ private struct TranscriptRow: View {
 
     private var isVideo: Bool {
         UTType(filenameExtension: transcript.url.pathExtension)?.conforms(to: .movie) ?? false
+    }
+}
+
+/// The model new files are transcribed with: dictation's, or one picked for files.
+private struct FilesModelPicker: View {
+    @ObservedObject var queue: FileTranscriber
+    @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var models = ModelManager.shared
+
+    var body: some View {
+        Picker(selection: $queue.model) {
+            Text("Same as Dictation (\(settings.accuracyModel.displayName))").tag(AccuracyModel?.none)
+            Divider()
+            ForEach(AccuracyModel.allCases) { model in
+                Text(queue.unusableReason(model).map { "\(model.displayName) (\($0))" } ?? model.displayName)
+                    .tag(AccuracyModel?.some(model))
+                    .disabled(!queue.isUsable(model))
+            }
+        } label: {
+            Label("Model", systemImage: "cpu")
+        }
+        .pickerStyle(.menu)
+        .fixedSize()
+        .help("The speech model for new files. Download more in Models.")
+    }
+}
+
+/// "Transcribe Again With ›": the same file with another model, kept next to this transcript.
+private struct TranscribeAgainMenu: View {
+    let transcript: FileTranscript
+    var compact = false
+    @ObservedObject private var models = ModelManager.shared
+
+    var body: some View {
+        let queue = FileTranscriber.shared
+        Menu {
+            ForEach(AccuracyModel.allCases) { model in
+                Button(queue.unusableReason(model).map { "\(model.displayName) (\($0))" } ?? model.displayName) {
+                    queue.transcribeAgain(transcript, with: model)
+                }
+                .disabled(!queue.isUsable(model))
+            }
+        } label: {
+            if compact {
+                Label("Transcribe Again", systemImage: "arrow.trianglehead.2.clockwise")
+            } else {
+                Text("Transcribe Again With")
+            }
+        }
+        .disabled(!FileManager.default.fileExists(atPath: transcript.path))
     }
 }
 
@@ -669,6 +773,9 @@ private struct TranscriptDetail: View {
                         .monospacedDigit()
                 }
                 Spacer()
+                TranscribeAgainMenu(transcript: transcript, compact: true)
+                    .fixedSize()
+                    .help("Transcribe this file again with another model")
             }
             HStack(spacing: 10) {
                 Button { player.toggle(transcript.url) } label: {
