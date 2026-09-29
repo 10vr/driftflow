@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.15</title>
+            <pubDate>Tue, 29 Sep 2026 11:33:27 GMT</pubDate>
+            <sparkle:version>202609291932</sparkle:version>
+            <sparkle:shortVersionString>0.2.15</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>The main window opens and switches sections faster, however long your History gets: it shows 50 dictations at a time with Show More, and no longer redraws while you dictate.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.15/Driftflow-0.2.15-macOS.zip" type="application/octet-stream" sparkle:edSignature="RwM/R/RxZilcQcKnC8jojGt4k2C2qjDIUgPW3eJDx8QGi1WEFUFQMgTJSKSnVH84MkIPeA0hhzvIjQYYr1qMAg==" length="13438420"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.14</title>
             <pubDate>Tue, 29 Sep 2026 09:33:41 GMT</pubDate>
             <sparkle:version>202609291733</sparkle:version>
