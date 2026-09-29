@@ -213,6 +213,13 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
             check("app name: \(spoken)", named.process(spoken), "I use Driftflow daily.")
         }
         check("app name: built in", AppSettings.shared.spellingTerms.contains("Driftflow"), true)
+        check("filler: ends a sentence, keeps the space", TextProcessor().process("Tell her um. Then go."), "Tell her. Then go.")
+        check("filler: ends a question", TextProcessor().process("Is it um? Yes."), "Is it? Yes.")
+        check("filler: starts a sentence", TextProcessor().process("Um, so we go."), "So we go.")
+        check("filler: before scratch that", TextProcessor().applyScratch("Hi. Meet at five um. Scratch that. Bye.").text, "Hi. Bye.")
+        check("numbers: a month keeps its digit", NumberStyle.apply("march 5"), "March 5")
+        check("numbers: months keep theirs", NumberStyle.apply("on may 1 and may 2"), "on May 1 and May 2")
+        check("numbers: a quantity is spelled out", NumberStyle.apply("sept 5 or 3 days later"), "sept 5 or three days later")
         let sig = Snippet(trigger: "my signature", text: "Best,\nAlex")
         let addr = Snippet(trigger: "Office address", text: "12 Main St")
         check("snippet: whole phrase", Snippet.match("My signature.", in: [sig, addr])?.text ?? "-", sig.text)

@@ -13,7 +13,7 @@ struct TextProcessor {
     /// Fillers only in the forms speech models write them: lowercase or capitalized, never
     /// all-caps (ER, UM are acronyms) and never inside a hyphenated word ("Uh-oh").
     private static let fillerPattern = try! NSRegularExpression(
-        pattern: #"(?<![\p{L}'\-])(?:[Uu]m+|[Uu]h+|[Ee]rm+|[Ee]r|[Aa]h+|[Hh]mm+|[Mm]hm)(?![\p{L}'\-])([,.!?])?[ \t]*"#
+        pattern: #"(?<![\p{L}'\-])(?:[Uu]m+|[Uu]h+|[Ee]rm+|[Ee]r|[Aa]h+|[Hh]mm+|[Mm]hm)(?![\p{L}'\-])([,.!?])?([ \t]*)"#
     )
     private static let commandPatterns: [(NSRegularExpression, String)] = [
         (try! NSRegularExpression(pattern: #"(?i)\s*\bnew paragraph\b[,.]?\s*"#), "\n\n"),
@@ -47,14 +47,16 @@ struct TextProcessor {
     }
 
     /// Removes filler words. One that started a sentence hands its capital to the next word
-    /// ("Um, so we go." → "So we go."); one that ended a sentence keeps the full stop.
+    /// ("Um, so we go." → "So we go."); one that ended a sentence keeps the full stop and the
+    /// space after it ("Tell her um. Then go." → "Tell her . Then go.").
     static func stripFillers(_ input: String) -> String {
         let text = NSMutableString(string: input)
         for match in fillerPattern.matches(in: input, range: NSRange(location: 0, length: text.length)).reversed() {
             let before = text.substring(to: match.range.location).trimmingCharacters(in: .whitespaces)
             let startsSentence = before.last.map { ".!?\n".contains($0) } ?? true
             let punctuation = match.range(at: 1).location == NSNotFound ? "" : text.substring(with: match.range(at: 1))
-            let keep = !startsSentence && ".!?".contains(punctuation) && !punctuation.isEmpty ? punctuation : ""
+            let keep = !startsSentence && ".!?".contains(punctuation) && !punctuation.isEmpty
+                ? punctuation + text.substring(with: match.range(at: 2)) : ""
             text.replaceCharacters(in: match.range, with: keep)
             let next = match.range.location + (keep as NSString).length
             if startsSentence, keep.isEmpty, next < text.length {

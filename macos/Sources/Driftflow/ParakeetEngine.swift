@@ -415,8 +415,9 @@ enum NumberStyle {
                 guard !months.contains(previousWord), let word = ordinals["\(digit)\(suffix.lowercased())"] else { continue }
                 replacement = word
             } else {
-                // Only spell out when it sits between words (a quantity in prose), not after a label.
-                guard !labels.contains(previousWord), !previousWord.isEmpty else { continue }
+                // Only spell out when it sits between words (a quantity in prose), not after a label
+                // or a month ("March 5").
+                guard !labels.contains(previousWord), !months.contains(previousWord), !previousWord.isEmpty else { continue }
                 replacement = cardinals[digit]
             }
             let range = Range(match.range, in: result)!
