@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.13</title>
+            <pubDate>Tue, 29 Sep 2026 08:49:47 GMT</pubDate>
+            <sparkle:version>202609291649</sparkle:version>
+            <sparkle:shortVersionString>0.2.13</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Transcribing files is up to 4× faster on long recordings: a 34-minute file now takes about 9 seconds instead of 36.</p><p>Files now lives in the main window, next to History, with the settings below. The menu, Open With and dropping files on the Dock icon all open it there.</p><p>Choose which speech model transcribes your files, or transcribe any file again with another model to compare.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.13/Driftflow-0.2.13-macOS.zip" type="application/octet-stream" sparkle:edSignature="5JL5J+59pWdQZQDDvSARXZtMJq0cutoRHnfzZguCMILK2t2Dyb4ml7cBuSiSrt+CQcXDfZ10gABMLfRk69oNDg==" length="13436868"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.12</title>
             <pubDate>Mon, 28 Sep 2026 14:19:14 GMT</pubDate>
             <sparkle:version>202609282218</sparkle:version>
