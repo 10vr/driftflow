@@ -22,8 +22,13 @@ actor ParakeetEngine {
     let gate = SpeechGate()
     private var vocabulary: [String] = []
     private var ctcModels: CtcModels?
-    /// True once Unified is rescoring against `vocabulary`.
-    private(set) var boostingActive = false
+    /// Vocabulary correction for Unified. Run by this engine rather than configured on the model,
+    /// so it can be skipped when a transcript has nothing it could correct (see `VocabularyGate`).
+    private var boosting: VocabularyBoostingSession?
+    private var boostingTerms: [String] = []
+    private var vocabularyGate: VocabularyGate?
+    /// True once Unified is correcting against `vocabulary`.
+    var boostingActive: Bool { boosting != nil }
     private(set) var vocabularyError: String?
     private var backend: Backend?
     private var loadedModel: AccuracyModel?
@@ -102,52 +107,62 @@ actor ParakeetEngine {
     }
 
     /// Calls can overlap (the actor is re-entered at each await), so each one checks after every
-    /// await that its word list and model are still current, and a newer call wins.
+    /// await that its word list is still current, and a newer call wins.
     private func applyVocabulary() async {
-        guard case .unified(let manager) = backend else { return }
+        guard case .unified = backend else { return } // TDT models aren't corrected
         let terms = vocabulary
         if terms.isEmpty {
-            // Boosting can't be switched off in place: swap in a fresh copy of the model (its files
-            // are on disk, so this takes about a second). The boosted one keeps working meanwhile.
-            guard boostingActive else { return }
-            let fresh = UnifiedAsrManager()
-            guard (try? await fresh.loadModels()) != nil, vocabulary.isEmpty,
-                  case .unified(let current) = backend, current === manager else { return }
-            backend = .unified(fresh)
-            boostingActive = false
+            boosting = nil
+            boostingTerms = []
+            vocabularyGate = nil
             return
         }
+        guard terms != boostingTerms || boosting == nil else { return }
         do {
             if ctcModels == nil { ctcModels = try await CtcModels.downloadAndLoad() }
-            guard let ctcModels, terms == vocabulary, case .unified(let current) = backend, current === manager else { return }
+            guard let ctcModels, terms == vocabulary else { return }
             let context = CustomVocabularyContext(terms: terms.map { CustomVocabularyTerm(text: $0) })
-            try await manager.configureVocabularyBoosting(vocabulary: context, ctcModels: ctcModels)
+            // What `UnifiedAsrManager.configureVocabularyBoosting` sets up, held here instead.
+            let session = try await VocabularyBoostingSession(vocabulary: context, ctcModels: ctcModels,
+                                                              config: VocabularyBoostingSession.itnDefaultConfig)
             guard terms == vocabulary else { return } // a newer list is being applied
-            boostingActive = true
+            boosting = session
+            boostingTerms = terms
+            vocabularyGate = VocabularyGate(terms: terms)
             vocabularyError = nil
         } catch {
             vocabularyError = error.localizedDescription
         }
     }
 
-    /// A freshly loaded model has no vocabulary boosting until `applyVocabulary` adds it.
     private func install(_ backend: Backend, model: AccuracyModel) {
         self.backend = backend
         loadedModel = model
-        boostingActive = false
         state = .ready
     }
 
-    /// Transcribes 16 kHz mono samples. Returns nil if no model is loaded.
-    func transcribe(_ samples: [Float]) async throws -> String? {
+    /// Unified's words with your Vocabulary applied. The correction (a second model listening for
+    /// your terms, then rescoring) took 100–500 ms on every dictation, so it runs only when some
+    /// words in the transcript resemble a term; otherwise nothing could change and it's skipped.
+    private func correctedWords(text: String, timings: [TokenTiming], audio: [Float]) async -> [WordTiming] {
+        let raw = buildWordTimings(from: timings)
+        guard let boosting, let vocabularyGate, vocabularyGate.mightContainTerm(raw.map(\.word)) else { return raw }
+        let rescored = await boosting.rescore(text: text, tokenTimings: timings, audioSamples: audio)
+        return VocabularyMerge.merge(raw: raw, boosted: rescored?.text ?? text)
+    }
+
+    /// Transcribes 16 kHz mono samples. Returns nil if no model is loaded. `correct: false` skips
+    /// Vocabulary correction: the live preview, which the final text replaces moments later, uses
+    /// it so that it doesn't keep the Neural Engine busy when you release the key.
+    func transcribe(_ samples: [Float], correct: Bool = true) async throws -> String? {
         guard backend != nil else { return nil }
         guard samples.count >= 4_800 else { return "" } // < 0.3 s: nothing to say
         guard await gate.hasSpeech(samples) else { return "" }
-        return try await recognize(samples)
+        return try await recognize(samples, correct: correct)
     }
 
     /// The model itself, without the speech gate.
-    private func recognize(_ samples: [Float]) async throws -> String? {
+    private func recognize(_ samples: [Float], correct: Bool = true) async throws -> String? {
         guard let backend else { return nil }
         let text: String
         switch backend {
@@ -158,10 +173,10 @@ actor ParakeetEngine {
             text = try await manager.transcribe(padded, decoderState: &decoderState).text
         case .unified(let manager):
             let padded = samples.count < 16_000 ? samples + [Float](repeating: 0, count: 16_000 - samples.count) : samples
-            if boostingActive {
+            if boosting != nil, correct {
                 let result = try await manager.transcribeWithTimings(padded)
-                let raw = buildWordTimings(from: result.tokenTimings)
-                text = VocabularyMerge.merge(raw: raw, boosted: result.text).map(\.word).joined(separator: " ")
+                text = await correctedWords(text: result.text, timings: result.tokenTimings, audio: padded)
+                    .map(\.word).joined(separator: " ")
             } else {
                 text = try await manager.transcribe(padded)
             }
@@ -190,8 +205,7 @@ actor ParakeetEngine {
         case .unified(let manager):
             let padded = samples.count < 16_000 ? samples + [Float](repeating: 0, count: 16_000 - samples.count) : samples
             let result = try await manager.transcribeWithTimings(padded)
-            let raw = buildWordTimings(from: result.tokenTimings)
-            return boostingActive ? VocabularyMerge.merge(raw: raw, boosted: result.text) : raw
+            return await correctedWords(text: result.text, timings: result.tokenTimings, audio: padded)
         }
     }
 }
@@ -278,6 +292,61 @@ enum VocabularyMerge {
 
     private static func key(_ word: String) -> String {
         word.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+}
+
+/// Decides whether Vocabulary correction could change a transcript. The correction only ever
+/// replaces a run of words with a term, and `VocabularyMerge` then keeps the replacement only if
+/// the words heard are at least 65% similar to it. So if no run of 1–6 words comes within 50% of a
+/// term (letters and digits only, spaces ignored), the correction can't change anything and the
+/// slow part is skipped. Compared by length first, which rules out nearly every run for free.
+struct VocabularyGate {
+    static let threshold = 0.5
+    private let terms: [[UInt8]]
+    private let longestTerm: Int
+
+    init(terms: [String]) {
+        self.terms = terms.map(Self.key).filter { !$0.isEmpty }
+        longestTerm = self.terms.map(\.count).max() ?? 0
+    }
+
+    func mightContainTerm(_ words: [String]) -> Bool {
+        let keys = words.map(Self.key)
+        for start in keys.indices {
+            var run: [UInt8] = []
+            for end in start..<min(keys.count, start + 6) {
+                run += keys[end]
+                // A run over twice the longest term can't reach 50%: stop lengthening it.
+                if run.count > longestTerm * 2 { break }
+                guard !run.isEmpty else { continue }
+                for term in terms {
+                    // Similarity can't beat shorter/longer length, so most pairs are skipped here.
+                    guard Double(min(run.count, term.count)) / Double(max(run.count, term.count)) >= Self.threshold else { continue }
+                    if Self.similarity(run, term) >= Self.threshold { return true }
+                }
+            }
+        }
+        return false
+    }
+
+    /// Lowercased letters and digits, as bytes (what `VocabularyMerge` compares).
+    static func key(_ word: String) -> [UInt8] {
+        Array(word.lowercased().filter { $0.isLetter || $0.isNumber }.utf8)
+    }
+
+    /// 1 − edit distance / longer length.
+    static func similarity(_ x: [UInt8], _ y: [UInt8]) -> Double {
+        guard !x.isEmpty, !y.isEmpty else { return 0 }
+        var previous = Array(0...y.count)
+        var current = [Int](repeating: 0, count: y.count + 1)
+        for i in 1...x.count {
+            current[0] = i
+            for j in 1...y.count {
+                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (x[i - 1] == y[j - 1] ? 0 : 1))
+            }
+            swap(&previous, &current)
+        }
+        return 1 - Double(previous[y.count]) / Double(max(x.count, y.count))
     }
 }
 
@@ -466,12 +535,14 @@ final class ParakeetPreview {
             let started = ContinuousClock.now
             var lastRead = -1
             // Self-pacing: wait at least twice as long as the last update took, so a slower chip
-            // (an M1, or a busy Mac) previews a little less often instead of falling behind.
-            var interval: Duration = .milliseconds(mode == .early ? 150 : 200)
+            // (an M1, or a busy Mac) previews a little less often instead of falling behind. Until
+            // the first words are up it looks every 50 ms, so they appear as soon as 0.3 s of audio
+            // (the least the model reads) has arrived.
+            var interval: Duration = .milliseconds(50)
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
                 if mode == .early, appleHasText() || ContinuousClock.now - started > .seconds(4) { return }
-                guard recorder.count >= 6_400 else { continue } // wait for 0.4 s of audio
+                guard recorder.count >= 4_800 else { continue } // wait for 0.3 s of audio
                 // While a finished segment is still being transcribed, keep the current text on screen.
                 if let finalizer, finalizer.hasPendingSegments { continue }
                 let from = finalizer?.committedSamples ?? 0
@@ -480,7 +551,7 @@ final class ParakeetPreview {
                 lastRead = total
                 let settled = finalizer?.completedText ?? ""
                 let begun = ContinuousClock.now
-                let result = try? await parakeet.transcribe(recorder.take(from: from))
+                let result = try? await parakeet.transcribe(recorder.take(from: from), correct: false)
                 interval = max(.milliseconds(mode == .early ? 150 : 200), (ContinuousClock.now - begun) * 2)
                 guard let text = result,
                       !Task.isCancelled, mode == .continuous || !appleHasText() else { continue }

@@ -504,6 +504,9 @@ func transcribeFile(path: String, localeID: String, model: ModelPreference) asyn
     let useParakeet = !CommandLine.arguments.contains("--apple-only")
     do {
         if useParakeet {
+            if let index = CommandLine.arguments.firstIndex(of: "--vocab"), index + 1 < CommandLine.arguments.count {
+                await parakeet.setVocabulary(CommandLine.arguments[index + 1].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+            }
             try await parakeet.load(CommandLine.arguments.contains("--v2") ? .parakeetV2 : .parakeetUnified) { _ in }
         }
         let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
