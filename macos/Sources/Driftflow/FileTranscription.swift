@@ -597,7 +597,7 @@ enum FileTranscription {
             group.addTask { @MainActor in try await cutChunks() }
             group.addTask { @MainActor in try await transcribeChunks(with: parakeet) }
             // Copies of the model work side by side (their steps overlap on the Neural Engine and
-            // CPU): three were measured transcribing a 34-minute file 2.4× faster than one.
+            // CPU): see FileTranscriber.helperCount for how many pay off.
             for helper in await helpers() {
                 group.addTask { @MainActor in try await transcribeChunks(with: helper) }
             }

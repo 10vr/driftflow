@@ -42,7 +42,15 @@ final class FileTranscriber: ObservableObject {
     private var filesParakeet: ParakeetEngine?
     /// More copies of the model, transcribing other parts of a long file at the same time.
     private var helperPool: [ParakeetEngine] = []
-    static let helperCount = 2
+
+    /// How many copies to add. Measured on a 34-minute file (M-series, 10 cores): without
+    /// Vocabulary, 4 copies in all is fastest (2.8× one; more add nothing, the Neural Engine is
+    /// full). With Vocabulary on Parakeet Unified, its word check runs on the CPU and keeps
+    /// scaling: 6 copies are 4.2× one. Each copy adds about 50 MB. Fewer on Macs with fewer cores.
+    private static func helperCount(for model: AccuracyModel, vocabulary: [String]) -> Int {
+        let wanted = model == .parakeetUnified && !vocabulary.isEmpty ? 5 : 3
+        return max(0, min(wanted, ProcessInfo.processInfo.activeProcessorCount - 3))
+    }
 
     private var worker: Task<Void, Never>?
     private var running: (id: UUID, task: Task<[TranscriptSegment], Error>)?
@@ -263,10 +271,11 @@ final class FileTranscriber: ObservableObject {
 
     /// Copies of `model` for a long file, loaded side by side and kept for the next file in the queue.
     private func helpers(for model: AccuracyModel) async -> [ParakeetEngine] {
-        while helperPool.count < Self.helperCount { helperPool.append(ParakeetEngine()) }
         let terms = AppSettings.shared.vocabularyTerms
+        let count = Self.helperCount(for: model, vocabulary: terms)
+        while helperPool.count < count { helperPool.append(ParakeetEngine()) }
         return await withTaskGroup(of: ParakeetEngine?.self) { group in
-            for engine in helperPool {
+            for engine in helperPool.prefix(count) {
                 group.addTask {
                     await engine.setVocabulary(terms)
                     if await engine.model != model { try? await engine.load(model) { _ in } }
