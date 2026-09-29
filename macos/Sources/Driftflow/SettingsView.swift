@@ -11,8 +11,10 @@ final class SettingsRouter: ObservableObject {
 }
 
 struct SettingsView: View {
-    @ObservedObject var controller: DictationController
-    @ObservedObject var settings: AppSettings
+    // Not observed here: the controller changes many times a second while you dictate, and the
+    // whole window redrew with it. Each section observes what it shows.
+    let controller: DictationController
+    let settings: AppSettings
     @ObservedObject private var router = SettingsRouter.shared
 
     enum Pane: String, CaseIterable, Identifiable {
@@ -937,22 +939,21 @@ private struct HistoryPane: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject private var store = HistoryStore.shared
     @State private var query = ""
-    @State private var copied: UUID?
     @State private var confirmClear = false
-    @State private var expanded: Set<UUID> = []
-    @State private var retrying: UUID?
-    @State private var retryFailed: UUID?
-    @State private var hovered: UUID?
+    /// How many dictations are shown; "Show More" adds a page. Laying out thousands of rows at
+    /// once froze the window for over a minute.
+    @State private var shown = HistoryPane.pageSize
+    static let pageSize = 50
 
-    private var filtered: [HistoryEntry] {
+    private var matches: [HistoryEntry] {
         query.isEmpty ? store.entries : store.entries.filter { $0.text.localizedCaseInsensitiveContains(query) }
     }
 
-    /// Entries grouped under "Today", "Yesterday", or a date.
-    private var groups: [(title: String, entries: [HistoryEntry])] {
+    /// The shown entries grouped under "Today", "Yesterday", or a date.
+    private func groups(_ entries: ArraySlice<HistoryEntry>) -> [(title: String, entries: [HistoryEntry])] {
         let calendar = Calendar.current
         var result: [(String, [HistoryEntry])] = []
-        for entry in filtered {
+        for entry in entries {
             let title = calendar.isDateInToday(entry.date) ? "Today"
                 : calendar.isDateInYesterday(entry.date) ? "Yesterday"
                 : entry.date.formatted(.dateTime.weekday(.wide).month().day())
@@ -962,13 +963,14 @@ private struct HistoryPane: View {
     }
 
     var body: some View {
+        let matches = matches
         Form {
             if !store.entries.isEmpty {
                 Section {
                     HStack(spacing: 16) {
-                        StatTile(value: store.totalWords.formatted(), caption: "Words dictated")
-                        StatTile(value: store.wordsThisWeek.formatted(), caption: "This week")
-                        StatTile(value: store.entries.filter { $0.status == nil }.count.formatted(), caption: "Dictations")
+                        StatTile(value: store.stats.totalWords.formatted(), caption: "Words dictated")
+                        StatTile(value: store.stats.wordsThisWeek.formatted(), caption: "This week")
+                        StatTile(value: store.stats.dictations.formatted(), caption: "Dictations")
                     }
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
@@ -995,23 +997,49 @@ private struct HistoryPane: View {
                     ContentUnavailableView("No dictations yet", systemImage: "waveform",
                                            description: Text("Everything you dictate shows up here."))
                 }
+            } else if matches.isEmpty {
+                Section {
+                    ContentUnavailableView.search(text: query)
+                }
             } else {
-                ForEach(groups, id: \.title) { group in
+                ForEach(groups(matches.prefix(shown)), id: \.title) { group in
                     Section(group.title) {
-                        ForEach(group.entries) { entry in row(entry) }
+                        ForEach(group.entries) { entry in HistoryRow(entry: entry) }
+                    }
+                }
+                if matches.count > shown {
+                    Section {
+                        HStack {
+                            Text("Showing \(shown.formatted()) of \(matches.count.formatted())")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Show \(min(Self.pageSize, matches.count - shown)) More") { shown += Self.pageSize }
+                        }
                     }
                 }
             }
         }
         .searchable(text: $query, prompt: "Search dictations")
+        .onChange(of: query) { shown = Self.pageSize }
         .confirmationDialog("Delete all \(store.entries.count) dictations?", isPresented: $confirmClear) {
             Button("Clear History", role: .destructive) { withAnimation { store.clear() } }
         } message: {
             Text("This also deletes any saved audio of failed dictations. It can't be undone.")
         }
     }
+}
 
-    private func row(_ entry: HistoryEntry) -> some View {
+/// One dictation in History. Hover, copy and expand state live here, so hovering a row
+/// redraws only that row.
+private struct HistoryRow: View {
+    let entry: HistoryEntry
+    @State private var hovered = false
+    @State private var copied = false
+    @State private var expanded = false
+    @State private var retrying = false
+    @State private var retryFailed = false
+
+    var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 if entry.status == .failed {
@@ -1023,34 +1051,32 @@ private struct HistoryPane: View {
                             .padding(.vertical, 3)
                             .background(.orange.opacity(0.12), in: .capsule)
                         if entry.audioFile != nil {
-                            Button(retrying == entry.id ? "Retrying…" : "Retry") {
-                                retrying = entry.id
+                            Button(retrying ? "Retrying…" : "Retry") {
+                                retrying = true
                                 Task {
                                     let ok = await DictationController.shared.retry(entry)
-                                    retrying = nil
-                                    if !ok { retryFailed = entry.id }
+                                    retrying = false
+                                    if !ok { retryFailed = true }
                                 }
                             }
                             .glassButtonStyle()
                             .controlSize(.small)
-                            .disabled(retrying != nil)
+                            .disabled(retrying)
                         } else {
                             Text("Audio no longer kept").font(.caption).foregroundStyle(.secondary)
                         }
-                        if retryFailed == entry.id {
+                        if retryFailed {
                             Text("Still nothing: the recording may be silent.").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 } else {
                     Text(entry.text)
                         .textSelection(.enabled)
-                        .lineLimit(expanded.contains(entry.id) ? nil : 3)
+                        .lineLimit(expanded ? nil : 3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if entry.text.count > 240 {
-                        Button(expanded.contains(entry.id) ? "Show less" : "Show more") {
-                            withAnimation(.snappy) {
-                                if expanded.contains(entry.id) { expanded.remove(entry.id) } else { expanded.insert(entry.id) }
-                            }
+                        Button(expanded ? "Show less" : "Show more") {
+                            withAnimation(.snappy) { expanded.toggle() }
                         }
                         .buttonStyle(.link)
                         .font(.caption)
@@ -1068,18 +1094,19 @@ private struct HistoryPane: View {
             }
             HStack(spacing: 10) {
                 // Delete shows on hover; its space is always kept so the row never shifts.
-                Button { withAnimation(.snappy) { store.delete(entry) } } label: { Image(systemName: "trash") }
+                Button { withAnimation(.snappy) { HistoryStore.shared.delete(entry) } } label: { Image(systemName: "trash") }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
                     .help(entry.audioFile != nil ? "Delete (and its saved audio)" : "Delete")
-                    .opacity(hovered == entry.id ? 1 : 0)
-                    .allowsHitTesting(hovered == entry.id)
+                    .opacity(hovered ? 1 : 0)
+                    .allowsHitTesting(hovered)
                 if !entry.text.isEmpty {
                     Button {
                         TextInserter.shared.copy(entry.text)
-                        withAnimation(.snappy) { copied = entry.id }
+                        withAnimation(.snappy) { copied = true }
+                        Task { try? await Task.sleep(for: .seconds(1.5)); withAnimation(.snappy) { copied = false } }
                     } label: {
-                        Image(systemName: copied == entry.id ? "checkmark" : "doc.on.doc")
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
                             .contentTransition(.symbolEffect(.replace))
                     }
                     .buttonStyle(.borderless)
@@ -1089,14 +1116,10 @@ private struct HistoryPane: View {
         }
         .padding(.vertical, 3)
         .contentShape(.rect)
-        .onHover { inside in
-            withAnimation(.easeOut(duration: 0.12)) {
-                if inside { hovered = entry.id } else if hovered == entry.id { hovered = nil }
-            }
-        }
+        .onHover { inside in withAnimation(.easeOut(duration: 0.12)) { hovered = inside } }
         .contextMenu {
             if !entry.text.isEmpty { Button("Copy") { TextInserter.shared.copy(entry.text) } }
-            Button("Delete", role: .destructive) { withAnimation { store.delete(entry) } }
+            Button("Delete", role: .destructive) { withAnimation { HistoryStore.shared.delete(entry) } }
         }
     }
 }
@@ -1161,27 +1184,30 @@ private struct UpdatesSection: View {
     }
 }
 
-/// Reads the real login-item state from macOS each time, so it stays right if you change it in
-/// System Settings › General › Login Items.
+/// Reads the real login-item state from macOS each time it appears, so it stays right if you
+/// change it in System Settings › General › Login Items. Asking macOS is a slow round trip (it
+/// held up opening the window), so it's done in the background.
 struct LaunchAtLoginToggle: View {
-    @State private var enabled = LoginItem.isEnabled
-    @State private var needsApproval = LoginItem.needsApproval
+    @State private var status: SMAppService.Status?
 
     var body: some View {
-        Toggle("Open at login", isOn: Binding(get: { enabled }, set: { value in
-            LoginItem.set(value)
-            refresh()
+        Toggle("Open at login", isOn: Binding(get: { status == .enabled }, set: { value in
+            status = value ? .enabled : .notRegistered
+            Task {
+                await Task.detached { LoginItem.set(value) }.value
+                await refresh()
+            }
         }))
-        .onAppear(perform: refresh)
-        if needsApproval {
+        .disabled(status == nil)
+        .task { await refresh() }
+        if status == .requiresApproval {
             Button("Allow in Login Items…") { SMAppService.openSystemSettingsLoginItems() }
                 .buttonStyle(.link)
         }
     }
 
-    private func refresh() {
-        enabled = LoginItem.isEnabled
-        needsApproval = LoginItem.needsApproval
+    private func refresh() async {
+        status = await Task.detached { SMAppService.mainApp.status }.value
     }
 }
 

@@ -1,5 +1,13 @@
 import Foundation
 
+/// ~/Library/Application Support/Driftflow: history, file transcripts and rescue audio.
+/// Developer tests point it elsewhere with DRIFTFLOW_DATA_DIR, so they never touch yours.
+enum AppData {
+    static let directory: URL = ProcessInfo.processInfo.environment["DRIFTFLOW_DATA_DIR"].map { URL(fileURLWithPath: $0) }
+        ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Driftflow", isDirectory: true)
+}
+
 struct HistoryEntry: Codable, Identifiable, Hashable {
     enum Status: String, Codable {
         /// Transcription failed; `audioFile` holds the recording so it can be retried.
@@ -18,7 +26,17 @@ struct HistoryEntry: Codable, Identifiable, Hashable {
     /// File name in `RescueAudio.directory` while a failed dictation can be retried.
     var audioFile: String?
 
-    var wordCount: Int { text.split(whereSeparator: \.isWhitespace).count }
+    /// Words in `text`, counted without copying it (History totals count thousands of these).
+    var wordCount: Int {
+        var count = 0
+        var inWord = false
+        for byte in text.utf8 {
+            let space = byte == 0x20 || (0x09...0x0D).contains(byte)
+            if !space, !inWord { count += 1 }
+            inWord = !space
+        }
+        return count
+    }
 }
 
 enum HistoryRetention: String, CaseIterable, Identifiable {
@@ -53,14 +71,37 @@ enum HistoryRetention: String, CaseIterable, Identifiable {
 final class HistoryStore: ObservableObject {
     static let shared = HistoryStore()
 
-    @Published private(set) var entries: [HistoryEntry] = []
+    @Published private(set) var entries: [HistoryEntry] = [] {
+        didSet { stats = Stats(entries) }
+    }
+    /// Totals for the History page, worked out once per change instead of on every redraw.
+    private(set) var stats = Stats([])
+
+    struct Stats {
+        var totalWords = 0
+        var wordsThisWeek = 0
+        var dictations = 0
+        var today = 0
+
+        init(_ entries: [HistoryEntry]) {
+            let weekStart = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
+            let todayStart = Calendar.current.startOfDay(for: Date())
+            for entry in entries {
+                guard entry.status == nil else { continue }
+                let words = entry.wordCount
+                totalWords += words
+                dictations += 1
+                if entry.date >= weekStart { wordsThisWeek += words }
+                if entry.date >= todayStart { today += 1 }
+            }
+        }
+    }
 
     private let fileURL: URL
     private let writeQueue = DispatchQueue(label: "driftflow.history", qos: .utility)
 
     private init() {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Driftflow", isDirectory: true)
+        let directory = AppData.directory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("history.json")
         if let data = try? Data(contentsOf: fileURL) {
@@ -73,11 +114,10 @@ final class HistoryStore: ObservableObject {
             }
         }
         prune()
+        stats = Stats(entries) // observers don't run during init
     }
 
-    var todayCount: Int {
-        entries.filter { Calendar.current.isDateInToday($0.date) }.count
-    }
+    var todayCount: Int { stats.today }
 
     func add(_ text: String, appName: String?, latencyMs: Int?) {
         guard AppSettings.shared.historyRetention != .off else { return }
@@ -111,12 +151,6 @@ final class HistoryStore: ObservableObject {
         save()
     }
 
-    var totalWords: Int { entries.reduce(0) { $0 + $1.wordCount } }
-
-    var wordsThisWeek: Int {
-        let start = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
-        return entries.filter { $0.date >= start }.reduce(0) { $0 + $1.wordCount }
-    }
 
     /// Deletes every saved failed-dictation recording (when you turn keeping them off); the
     /// entries stay, marked failed, without a Retry.
@@ -149,7 +183,7 @@ final class HistoryStore: ObservableObject {
     func prune() {
         let before = entries.count
         let retention = AppSettings.shared.historyRetention
-        if let interval = retention.interval {
+        if let interval = retention.interval, let oldest = entries.last?.date, oldest < Date().addingTimeInterval(-interval) {
             let cutoff = Date().addingTimeInterval(-interval)
             for entry in entries where entry.date < cutoff { if let file = entry.audioFile { RescueAudio.delete(file) } }
             entries.removeAll { $0.date < cutoff }
@@ -195,8 +229,7 @@ private extension JSONDecoder {
 /// ~/Library/Application Support/Driftflow/Rescue (your account only), deleted after a retry or 24 hours.
 enum RescueAudio {
     static let directory: URL = {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Driftflow/Rescue", isDirectory: true)
+        let url = AppData.directory.appendingPathComponent("Rescue", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         return url
     }()

@@ -8,7 +8,7 @@ import ServiceManagement
 let arguments = CommandLine.arguments
 /// Options that run inside the app itself (see DriftflowApp); anything else starting with "--" is
 /// a command-line tool below.
-let guiOptions: Set<String> = ["--scratch-test", "--hud-demo", "--demo", "--snapshot", "--mic-test", "--tap-test"]
+let guiOptions: Set<String> = ["--scratch-test", "--hud-demo", "--demo", "--snapshot", "--mic-test", "--tap-test", "--perf-test"]
 
 if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.count {
     let path = arguments[index + 1]

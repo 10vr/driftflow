@@ -62,8 +62,7 @@ final class FileTranscriber: ObservableObject {
                                                 "flv", "spx", "ape", "wv", "ra", "rm", "amr", "3gp", "ts", "mts"]
 
     private init() {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Driftflow", isDirectory: true)
+        let directory = AppData.directory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("transcripts.json")
         model = AccuracyModel(rawValue: UserDefaults.standard.string(forKey: "filesModel") ?? "")

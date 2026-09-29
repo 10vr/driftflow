@@ -51,12 +51,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else if CommandLine.arguments.contains("--demo") {
             Task { await DictationController.shared.runDemo() }
-        } else if CommandLine.arguments.contains("--snapshot") || CommandLine.arguments.contains("--mic-test") {
+        } else if ["--snapshot", "--mic-test", "--perf-test"].contains(where: CommandLine.arguments.contains) {
             // Developer runs: no hot keys or dictation, so they can't interfere with the real app.
         } else {
             DictationController.shared.launch()
             StatusMenu.shared.install()
             _ = Updater.shared
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--perf-test"), index + 1 < CommandLine.arguments.count {
+            Task {
+                await PerfTest.run(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+                NSApp.terminate(nil)
+            }
         }
         if let index = CommandLine.arguments.firstIndex(of: "--mic-test"), index + 1 < CommandLine.arguments.count {
             Task {
