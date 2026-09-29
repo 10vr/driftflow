@@ -98,7 +98,8 @@ struct SettingsView: View {
             .navigationTitle((router.pane ?? .general).title)
             .navigationSubtitle((router.pane ?? .general).subtitle)
         }
-        .frame(minWidth: 780, idealWidth: 780, minHeight: 600, idealHeight: 600)
+        // Files has a list and a transcript side by side, so the window widens for it.
+        .frame(minWidth: router.pane == .files ? 950 : 780, idealWidth: 780, minHeight: 600, idealHeight: 600)
         .background(StandardWindowButtons())
     }
 }

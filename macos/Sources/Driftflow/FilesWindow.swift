@@ -394,7 +394,9 @@ struct FilesPane: View {
     @State private var dropTargeted = false
 
     var body: some View {
-        HSplitView {
+        // An HStack, not HSplitView: the split view's divider ran up through the title bar,
+        // across the section's title.
+        HStack(spacing: 0) {
             List(selection: $selection.id) {
                 if !queue.jobs.isEmpty {
                     Section("In Progress") {
@@ -437,7 +439,8 @@ struct FilesPane: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
             }
-            .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
+            .frame(width: 250)
+            Divider()
             Group {
                 if let job = queue.jobs.first(where: { $0.id == selection.id }) {
                     JobDetail(job: job, queue: queue)
@@ -448,7 +451,7 @@ struct FilesPane: View {
                     DropZone(importing: $importing, engine: queue.engineLabel)
                 }
             }
-            .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
         }
         .onDisappear { NotificationCenter.default.post(name: TranscriptPlayer.stopAll, object: nil) }
         .toolbar {
@@ -492,7 +495,7 @@ struct FilesPane: View {
         .fileImporter(isPresented: $importing, allowedContentTypes: allowedTypes, allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { add(urls) }
         }
-        .frame(minWidth: 680, minHeight: 440)
+        .frame(minWidth: 750, minHeight: 440)
     }
 
     private var allowedTypes: [UTType] {
@@ -832,6 +835,7 @@ private struct TranscriptDetail: View {
                 Text("\(FileTranscript.clock(player.time)) / \(FileTranscript.clock(transcript.duration))")
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .fixedSize() // squeezed, it wrapped into a tall invisible column that stretched the header
                 Spacer()
                 Picker("", selection: $layout) {
                     ForEach(Layout.allCases, id: \.self) { Text($0.rawValue) }
@@ -858,6 +862,7 @@ private struct TranscriptDetail: View {
             }
         }
         .padding(20)
+        .fixedSize(horizontal: false, vertical: true) // its own height; the transcript takes the rest
     }
 
     private var details: String {
