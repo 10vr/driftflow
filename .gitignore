@@ -7,3 +7,4 @@ dist/
 # macOS
 .DS_Store
 .venv-dmg/
+.claude/worktrees/
