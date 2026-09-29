@@ -40,6 +40,9 @@ final class FileTranscriber: ObservableObject {
     /// A second engine, for files using another Parakeet model than dictation (which keeps its own
     /// loaded). Released when the queue is done, to give the memory back.
     private var filesParakeet: ParakeetEngine?
+    /// More copies of the model, transcribing other parts of a long file at the same time.
+    private var helperPool: [ParakeetEngine] = []
+    static let helperCount = 2
 
     private var worker: Task<Void, Never>?
     private var running: (id: UUID, task: Task<[TranscriptSegment], Error>)?
@@ -162,6 +165,7 @@ final class FileTranscriber: ObservableObject {
                 await run(job)
             }
             filesParakeet = nil
+            helperPool = []
             worker = nil
         }
     }
@@ -175,7 +179,12 @@ final class FileTranscriber: ObservableObject {
         let started = clock.now
 
         let task = Task { @MainActor in
-            try await FileTranscription.run(job.url, engine: engine, beforeChunk: {
+            try await FileTranscription.run(job.url, engine: engine, helpers: { [weak self] in
+                // Loading copies takes about a second, which only pays off on longer files.
+                guard let self, case .parakeet(_, let model) = engine,
+                      (await AudioDecoder.duration(of: job.url) ?? 0) > 90 else { return [] }
+                return await self.helpers(for: model)
+            }, beforeChunk: {
                 // Dictation always comes first: pause between chunks while the user is talking.
                 while DictationController.shared.phase != .idle { try await Task.sleep(for: .milliseconds(150)) }
             }, onProgress: { [weak self] progress in
@@ -250,6 +259,24 @@ final class FileTranscriber: ObservableObject {
             }
         }
         return (.apple(settings.engineConfig), "Apple Speech · \(language)")
+    }
+
+    /// Copies of `model` for a long file, loaded side by side and kept for the next file in the queue.
+    private func helpers(for model: AccuracyModel) async -> [ParakeetEngine] {
+        while helperPool.count < Self.helperCount { helperPool.append(ParakeetEngine()) }
+        let terms = AppSettings.shared.vocabularyTerms
+        return await withTaskGroup(of: ParakeetEngine?.self) { group in
+            for engine in helperPool {
+                group.addTask {
+                    await engine.setVocabulary(terms)
+                    if await engine.model != model { try? await engine.load(model) { _ in } }
+                    return await engine.model == model ? engine : nil
+                }
+            }
+            var ready: [ParakeetEngine] = []
+            for await engine in group { if let engine { ready.append(engine) } }
+            return ready
+        }
     }
 
     private func update(_ id: UUID, _ change: (inout Job) -> Void) {
@@ -656,17 +683,21 @@ private struct JobDetail: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(job.segments) { segment in
+                    // The lines are rebuilt (with new ids) at every progress update, so they're
+                    // identified by position and drawn lazily: redrawing them all each time slowed
+                    // long files down.
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(Array(job.segments.enumerated()), id: \.offset) { index, segment in
                             SegmentLine(segment: segment, active: false) {}
-                                .id(segment.id)
+                                .id(index)
                         }
                     }
                     .padding(.horizontal, 24)
                     .padding(.bottom, 24)
                 }
                 .onChange(of: job.segments.count) {
-                    if let last = job.segments.last { withAnimation(.smooth) { proxy.scrollTo(last.id, anchor: .bottom) } }
+                    guard !job.segments.isEmpty else { return }
+                    withAnimation(.smooth) { proxy.scrollTo(job.segments.count - 1, anchor: .bottom) }
                 }
             }
         }

@@ -50,9 +50,22 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
                 FileHandle.standardError.write(Data("[plain] \(Int((clock.now - t0).components.attoseconds / 1_000_000_000_000_000 + (clock.now - t0).components.seconds * 1000)) ms\n".utf8))
                 exit(0)
             }
-            let start = clock.now
             var chunks = 0
-            let segments = try await FileTranscription.run(url, engine: engine) { _ in chunks += 1 }
+            // `--copies N`: transcribe with N copies of the model side by side, as the app does (3).
+            let copies = arguments.firstIndex(of: "--copies").flatMap { $0 + 1 < arguments.count ? Int(arguments[$0 + 1]) : nil } ?? 1
+            var helpers: [ParakeetEngine] = []
+            if case .parakeet(_, let model) = engine, copies > 1 {
+                for _ in 1..<copies {
+                    let helper = ParakeetEngine()
+                    if let index = arguments.firstIndex(of: "--vocab"), index + 1 < arguments.count {
+                        await helper.setVocabulary(arguments[index + 1].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+                    }
+                    try await helper.load(model) { _ in }
+                    helpers.append(helper)
+                }
+            }
+            let start = clock.now
+            let segments = try await FileTranscription.run(url, engine: engine, helpers: { [helpers] in helpers }) { _ in chunks += 1 }
             let elapsed = clock.now - start
             let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
             let duration = await AudioDecoder.duration(of: url) ?? segments.last?.end ?? 0

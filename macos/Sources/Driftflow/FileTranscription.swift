@@ -476,8 +476,12 @@ enum FileTranscription {
     /// Transcribes `url` in pause-aligned chunks of about 30 s: the model's attention window is
     /// 15 s anyway, cutting at the quietest moment keeps words whole, and each chunk takes only a
     /// fraction of a second so progress (and live dictation) never waits long.
+    ///
+    /// `helpers` can supply more copies of the same Parakeet model: they transcribe other chunks
+    /// at the same time (it's called once the first copy is already working).
     @MainActor
-    static func run(_ url: URL, engine: Engine, beforeChunk: @escaping () async throws -> Void = {},
+    static func run(_ url: URL, engine: Engine, helpers: @escaping () async -> [ParakeetEngine] = { [] },
+                    beforeChunk: @escaping () async throws -> Void = {},
                     onProgress: @escaping (Progress) -> Void) async throws -> [TranscriptSegment] {
         switch engine {
         case .parakeet(let parakeet, let model):
@@ -485,7 +489,7 @@ enum FileTranscription {
             // against speech onsets over 90 recordings). Shifting Unified 0.3 s earlier puts both
             // on the word, a touch early rather than late.
             let lag = model == .parakeetUnified ? 0.3 : 0
-            return try await runParakeet(url, parakeet, lag: lag, beforeChunk: beforeChunk, onProgress: onProgress)
+            return try await runParakeet(url, parakeet, lag: lag, helpers: helpers, beforeChunk: beforeChunk, onProgress: onProgress)
         case .apple(let config):
             guard #available(macOS 26.0, *), !SpeechEngine.disabledForTesting else {
                 struct Unavailable: LocalizedError {
@@ -500,47 +504,106 @@ enum FileTranscription {
     private static let chunkSamples = 30 * 16_000
     private static let searchSamples = 8 * 16_000
 
+    /// Chunks cut from the file, waiting for (or done by) the model copies.
     @MainActor
-    private static func runParakeet(_ url: URL, _ parakeet: ParakeetEngine, lag: Double, beforeChunk: () async throws -> Void,
-                                    onProgress: (Progress) -> Void) async throws -> [TranscriptSegment] {
-        var pending: [Float] = []
-        var offset = 0
-        var words: [WordTiming] = []
+    private final class ChunkQueue {
+        var starts: [Int] = []
+        var ends: [Int] = []
+        var pieces: [[Float]] = []
+        var words: [[WordTiming]?] = []
+        var taken = 0
+        var allCut = false
+        /// Chunks finished from the start with no gaps (what progress shows).
+        var reported = 0
+
+        /// The next chunk to transcribe, or nil when the file is done.
+        func take() async throws -> Int? {
+            while true {
+                try Task.checkCancellation()
+                if taken < pieces.count {
+                    taken += 1
+                    return taken - 1
+                }
+                if allCut { return nil }
+                try await Task.sleep(for: .milliseconds(5))
+            }
+        }
+    }
+
+    @MainActor
+    private static func runParakeet(_ url: URL, _ parakeet: ParakeetEngine, lag: Double, helpers: @escaping () async -> [ParakeetEngine],
+                                    beforeChunk: @escaping () async throws -> Void,
+                                    onProgress: @escaping (Progress) -> Void) async throws -> [TranscriptSegment] {
         let model = await parakeet.model
+        let queue = ChunkQueue()
 
         struct ModelChanged: LocalizedError {
             var errorDescription: String? { "The speech model was changed during transcription. Transcribe the file again to use the new one." }
         }
 
-        func process(_ samples: [Float]) async throws {
-            try await beforeChunk()
-            let start = Double(offset) / AudioDecoder.sampleRate
-            // Every chunk must come from the same model (its timing and label are the job's).
-            guard await parakeet.model == model, let chunkWords = try await parakeet.transcribeWords(samples),
-                  await parakeet.model == model else {
-                throw ModelChanged()
+        // Decoding is ~20× faster than transcribing: cut chunks ahead, a few at a time.
+        @MainActor func cutChunks() async throws {
+            let reader = try await AudioDecoder.open(url)
+            defer { reader.close() }
+            var pending: [Float] = []
+            var offset = 0
+            func add(_ piece: [Float]) async throws {
+                while queue.pieces.count - queue.taken >= 6 { try await Task.sleep(for: .milliseconds(5)) }
+                queue.starts.append(offset)
+                queue.ends.append(offset + piece.count)
+                queue.pieces.append(piece)
+                queue.words.append(nil)
+                offset += piece.count
             }
-            words += chunkWords.map {
-                WordTiming(word: $0.word, startTime: max(0, $0.startTime + start - lag), endTime: max(0, $0.endTime + start - lag))
+            while let block = try await reader.nextBlock() {
+                try Task.checkCancellation()
+                pending += block
+                while pending.count >= chunkSamples {
+                    let cut = quietestPoint(pending, from: chunkSamples - searchSamples, to: chunkSamples)
+                    let piece = Array(pending[..<cut])
+                    pending.removeFirst(cut)
+                    try await add(piece)
+                }
             }
-            offset += samples.count
-            onProgress(Progress(seconds: Double(offset) / AudioDecoder.sampleRate, segments: TranscriptBuilder.segments(from: words)))
+            if !pending.isEmpty { try await add(pending) }
+            queue.allCut = true
         }
 
-        let reader = try await AudioDecoder.open(url)
-        defer { reader.close() }
-        while let block = try await reader.nextBlock() {
-            try Task.checkCancellation()
-            pending += block
-            while pending.count >= chunkSamples {
-                let cut = quietestPoint(pending, from: chunkSamples - searchSamples, to: chunkSamples)
-                let piece = Array(pending[..<cut])
-                pending.removeFirst(cut)
-                try await process(piece)
+        @MainActor func transcribeChunks(with engine: ParakeetEngine) async throws {
+            while let index = try await queue.take() {
+                try await beforeChunk()
+                let samples = queue.pieces[index]
+                queue.pieces[index] = [] // done with the audio
+                // Every chunk must come from the same model (its timing and label are the job's).
+                guard await engine.model == model, let chunkWords = try await engine.transcribeWords(samples),
+                      await engine.model == model else {
+                    throw ModelChanged()
+                }
+                let start = Double(queue.starts[index]) / AudioDecoder.sampleRate
+                queue.words[index] = chunkWords.map {
+                    WordTiming(word: $0.word, startTime: max(0, $0.startTime + start - lag), endTime: max(0, $0.endTime + start - lag))
+                }
+                let before = queue.reported
+                while queue.reported < queue.words.count, queue.words[queue.reported] != nil { queue.reported += 1 }
+                if queue.reported > before {
+                    let words = queue.words[..<queue.reported].flatMap { $0 ?? [] }
+                    onProgress(Progress(seconds: Double(queue.ends[queue.reported - 1]) / AudioDecoder.sampleRate,
+                                        segments: TranscriptBuilder.segments(from: words)))
+                }
             }
         }
-        if !pending.isEmpty { try await process(pending) }
-        return TranscriptBuilder.segments(from: words)
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in try await cutChunks() }
+            group.addTask { @MainActor in try await transcribeChunks(with: parakeet) }
+            // Copies of the model work side by side (their steps overlap on the Neural Engine and
+            // CPU): three were measured transcribing a 34-minute file 2.4× faster than one.
+            for helper in await helpers() {
+                group.addTask { @MainActor in try await transcribeChunks(with: helper) }
+            }
+            try await group.waitForAll()
+        }
+        return TranscriptBuilder.segments(from: queue.words.flatMap { $0 ?? [] })
     }
 
     /// Loudness every 10 ms (RMS), for `tighten`. 16 kHz input; any tail shorter than 10 ms is dropped.
