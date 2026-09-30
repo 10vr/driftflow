@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.22</title>
+            <pubDate>Wed, 30 Sep 2026 13:50:00 GMT</pubDate>
+            <sparkle:version>202609302149</sparkle:version>
+            <sparkle:shortVersionString>0.2.22</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>The live text in long dictations is steadier: words no longer show up twice or jumble where a long dictation is split into pieces, and the newest words guess less while you speak.</p><p>The Dictate into the stack shortcut is set like the other shortcuts in Settings › Shortcuts: click it and press ⌃, ⌥, ⇧ or ⌘.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.22/Driftflow-0.2.22-macOS.zip" type="application/octet-stream" sparkle:edSignature="HF2m/4K26B78g4hia+YWaU/7OJTvA/3nAAKg9CWrGD/DlkoVqNg/+vMSfSJ/0g6WUsoMqieRE+Zylz6eIvChDw==" length="13874372"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.21</title>
             <pubDate>Wed, 30 Sep 2026 10:40:09 GMT</pubDate>
             <sparkle:version>202609301839</sparkle:version>
