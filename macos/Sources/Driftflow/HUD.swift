@@ -253,6 +253,8 @@ struct HUDView: View {
     @State private var revealButtons = false
     private var handsFreeListening: Bool { controller.handsFree && controller.phase == .listening }
     private var showButtons: Bool { controller.phase == .listening && (hover.isOver || (handsFreeListening && revealButtons)) }
+    /// The bag button stays in view the whole time you speak, so it's there when you want it.
+    private var showBagButton: Bool { controller.phase == .listening && !controller.editing }
 
     var body: some View {
         ZStack(alignment: alignment) {
@@ -285,6 +287,7 @@ struct HUDView: View {
         .animation(.easeOut(duration: 0.18), value: controller.finalizedText + controller.volatileText)
         // One critically damped spring for the button reveal (width, padding and icons together).
         .animation(.spring(response: 0.3, dampingFraction: 1), value: showButtons)
+        .animation(.spring(response: 0.3, dampingFraction: 1), value: showBagButton)
         .animation(.spring(response: 0.32, dampingFraction: 0.78), value: controller.hudVisible)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: controller.toast)
     }
@@ -326,13 +329,12 @@ struct HUDView: View {
                     .padding(.leading, 12)
                     .transition(.opacity.combined(with: .move(edge: .leading)))
             }
-            if !controller.editing {
-                pillButton("tray.and.arrow.down", help: "Put in the bag, to paste later", edge: .leading, tint: Brand.violet) { controller.finishIntoBag() }
-            }
-            pillButton("checkmark", help: "Finish and insert", edge: .leading, gap: controller.editing ? 12 : 6) { controller.toggleFromMenu() }
+            pillButton("tray.and.arrow.down", help: "Put in the bag, to paste later", edge: .leading, tint: Brand.violet,
+                       shown: showBagButton) { controller.finishIntoBag() }
+            pillButton("checkmark", help: "Finish and insert", edge: .leading, gap: showBagButton ? 6 : 12) { controller.toggleFromMenu() }
         }
         .padding(.leading, showButtons ? 8 : 16)
-        .padding(.trailing, showButtons ? 8 : (hasText ? 20 : 16))
+        .padding(.trailing, showButtons || showBagButton ? 8 : (hasText ? 20 : 16))
         .frame(height: 46)
         // No overall width cap: the transcript has its own, so the buttons never squeeze it and
         // the text never re-truncates while the pill grows.
@@ -354,8 +356,9 @@ struct HUDView: View {
     /// while the icon scales up inside it, and the pill, text and icons all move on the same spring.
     /// (Inserting the button instead places it at its final spot at once, outside the growing pill.)
     private func pillButton(_ symbol: String, help: String, edge: Edge.Set, gap: CGFloat = 12, tint: Color? = nil,
-                            action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+                            shown: Bool? = nil, action: @escaping () -> Void) -> some View {
+        let showButtons = shown ?? showButtons
+        return Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))

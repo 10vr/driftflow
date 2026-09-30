@@ -1145,7 +1145,8 @@ final class DictationController: ObservableObject {
     /// its own windows without Screen Recording access) at fixed times, including the first frames
     /// after the pill appears, where the old adaptive glass flipped. Quits when done.
     func runHUDDemo(to directory: URL) async {
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+        // The screen the pill will appear on (the one you're working on).
+        let screen = HUDController.activeScreen() ?? NSScreen.main ?? NSScreen.screens[0]
         let backdrop = NSWindow(contentRect: NSRect(x: screen.frame.minX, y: screen.frame.minY, width: screen.frame.width, height: 320),
                                 styleMask: .borderless, backing: .buffered, defer: false)
         backdrop.level = .floating
@@ -1155,7 +1156,8 @@ final class DictationController: ObservableObject {
         LevelStore.shared.set(0.3)
         // Region around the bottom-centre pill, in global top-left coordinates.
         let visible = screen.visibleFrame
-        let region = CGRect(x: screen.frame.midX - 360, y: screen.frame.maxY - visible.minY - 12 - 120, width: 720, height: 120)
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        let region = CGRect(x: screen.frame.midX - 360, y: primaryHeight - visible.minY - 12 - 120, width: 720, height: 120)
         for dark in [true, false] {
             backdrop.backgroundColor = dark ? .black : .white
             backdrop.orderFrontRegardless()

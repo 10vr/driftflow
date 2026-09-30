@@ -30,8 +30,9 @@ final class HotKeyMonitor {
         self.trigger = trigger
 
         addMonitor(for: .keyDown) { [weak self] event in self?.onKeyDown(event.keyCode) }
-        // ⌘-click while holding a modifier trigger is a shortcut too; report it like a key.
-        addMonitor(for: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in self?.onKeyDown(Self.mouseKeyCode) }
+        // ⌘-click while holding a modifier trigger is a shortcut too; report it like a key. Only in
+        // other apps: a click on the pill's own buttons (or the bag) is meant for Driftflow.
+        addMonitor(for: [.leftMouseDown, .rightMouseDown], local: false) { [weak self] _ in self?.onKeyDown(Self.mouseKeyCode) }
 
         if trigger.isModifierOnly {
             addMonitor(for: .flagsChanged) { [weak self] event in self?.handleFlags(event) }
@@ -52,13 +53,13 @@ final class HotKeyMonitor {
         isDown = false
     }
 
-    private func addMonitor(for mask: NSEvent.EventTypeMask, handler: @escaping (NSEvent) -> Void) {
+    private func addMonitor(for mask: NSEvent.EventTypeMask, local: Bool = true, handler: @escaping (NSEvent) -> Void) {
         if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { event in
             onMainThread { handler(event) }
         }) {
             monitors.append(global)
         }
-        if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { event in
+        if local, let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { event in
             onMainThread { handler(event) }
             return event
         }) {
