@@ -373,16 +373,35 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
     // stack. Read-only: nothing is focused, typed or copied.
     print("Accessibility:", AXIsProcessTrusted() ? "on" : "off")
     // DRIFTFLOW_PROBE_WAKE=1: first look into Chrome-based browsers' pages, as the paste check does.
-    if ProcessInfo.processInfo.environment["DRIFTFLOW_PROBE_WAKE"] != nil {
+    if let mode = ProcessInfo.processInfo.environment["DRIFTFLOW_PROBE_WAKE"] {
         for app in NSWorkspace.shared.runningApplications where TextBoxCheck.isChromiumBrowser(app) {
+            let element = AXUIElementCreateApplication(app.processIdentifier)
+            if mode == "manual" || mode == "both" {
+                print("AXManualAccessibility on:", AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanTrue).rawValue)
+            }
+            if mode == "both" {
+                print("AXEnhancedUserInterface on:", AXUIElementSetAttributeValue(element, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue).rawValue)
+            }
             TextBoxCheck.wake(pid: app.processIdentifier)
+            for step in 1...6 {
+                Thread.sleep(forTimeInterval: 0.25)
+                let (result, detail) = TextBoxCheck.inspect(pid: app.processIdentifier)
+                print("after \(step * 250) ms: \(result) · \(detail)")
+            }
+            if mode == "both" {
+                AXUIElementSetAttributeValue(element, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
+            }
+            if mode == "manual" || mode == "both" {
+                print("AXManualAccessibility off:", AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanFalse).rawValue)
+                Thread.sleep(forTimeInterval: 0.5)
+                print("after turning it off: \(TextBoxCheck.inspect(pid: app.processIdentifier).detail)")
+            }
         }
-        Thread.sleep(forTimeInterval: 1)
     }
     for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
         let (result, detail) = TextBoxCheck.inspect(pid: app.processIdentifier)
         let front = app.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier ? " [in front]" : ""
-        print("\(app.localizedName ?? "?") (\(app.bundleIdentifier ?? ""))\(front) → \(result) · \(detail)")
+        print("\(app.localizedName ?? "?") (\(app.bundleIdentifier ?? ""))\(front) → \(result) · \(detail) · Edit menu: \(TextBoxCheck.editMenuState(pid: app.processIdentifier))")
     }
 } else if arguments.contains("--login-status") {
     // Whether macOS will open Driftflow at login (Login Items).

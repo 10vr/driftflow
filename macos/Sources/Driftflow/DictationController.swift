@@ -529,8 +529,11 @@ final class DictationController: ObservableObject {
               let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
         let pid = app.processIdentifier
-        let (result, detail) = await Task.detached(priority: .userInitiated) { TextBoxCheck.inspect(pid: pid) }.value
-        AppLog.info("Pasting into \(app.localizedName ?? "an app"): \(result) (\(detail))")
+        let (result, detail, menu) = await Task.detached(priority: .userInitiated) { () -> (TextBoxCheck.Result, String, String?) in
+            let (result, detail) = TextBoxCheck.inspect(pid: pid)
+            return (result, detail, result == .unknown ? TextBoxCheck.editMenuState(pid: pid) : nil)
+        }.value
+        AppLog.info("Pasting into \(app.localizedName ?? "an app"): \(result) (\(detail))" + (menu.map { " · Edit menu: \($0)" } ?? ""))
         // A browser that hasn't described its page yet (you switched to it while talking): the
         // paste goes ahead, and is checked again once it can say (see `catchUntakenPaste`).
         browserToRecheck = result == .unknown && TextBoxCheck.isChromiumBrowser(app) ? pid : nil

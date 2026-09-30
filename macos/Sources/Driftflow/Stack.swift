@@ -86,6 +86,31 @@ enum TextBoxCheck {
         visit(window as! AXUIElement, depth: 6)
     }
 
+    /// The app's Edit menu: whether Paste and Start Dictation… are available right now. macOS turns
+    /// Start Dictation on only while a text box is selected, in any app, so it may tell even apps
+    /// that don't describe their contents. Being tried out: logged, not yet acted on.
+    static func editMenuState(pid: pid_t) -> String {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.2)
+        func value(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
+            var result: CFTypeRef?
+            return AXUIElementCopyAttributeValue(element, attribute as CFString, &result) == .success ? result : nil
+        }
+        guard let bar = value(app, kAXMenuBarAttribute), CFGetTypeID(bar) == AXUIElementGetTypeID(),
+              let menus = value(bar as! AXUIElement, kAXChildrenAttribute) as? [AXUIElement] else { return "no menu bar" }
+        for menuBarItem in menus {
+            guard let menu = (value(menuBarItem, kAXChildrenAttribute) as? [AXUIElement])?.first,
+                  let items = value(menu, kAXChildrenAttribute) as? [AXUIElement] else { continue }
+            let titled = items.map { (title: value($0, kAXTitleAttribute) as? String ?? "", enabled: value($0, kAXEnabledAttribute) as? Bool) }
+            guard let paste = titled.first(where: { $0.title == "Paste" }) else { continue }
+            let dictation = titled.first { $0.title.hasPrefix("Start Dictation") }
+            let emoji = titled.first { $0.title.hasPrefix("Emoji") }
+            func show(_ item: (title: String, enabled: Bool?)?) -> String { item.map { $0.enabled.map { $0 ? "on" : "off" } ?? "?" } ?? "missing" }
+            return "Paste \(show(paste)), Start Dictation \(show(dictation)), Emoji \(show(emoji))"
+        }
+        return "no Edit menu"
+    }
+
     /// After `wake`: waits (up to `timeout`) for the browser to say what's selected.
     static func checkWhenAwake(pid: pid_t, timeout: TimeInterval) async -> Result {
         let deadline = Date().addingTimeInterval(timeout)
