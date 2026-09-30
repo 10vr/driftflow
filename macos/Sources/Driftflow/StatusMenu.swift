@@ -106,21 +106,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
         }
 
-        let stack = DictationStack.shared.items
-        if !stack.isEmpty {
-            menu.addItem(NSMenuItem.sectionHeader(title: "In Your Stack · Click to Paste"))
-            for (index, entry) in stack.enumerated() {
-                let text = entry.text
-                menu.addItem(command("\(index + 1). " + (text.count > 48 ? String(text.prefix(47)) + "…" : text)) { [controller] in
-                    controller.paste(fromStack: entry, afterMenu: true)
-                })
-            }
-            if stack.count > 1 {
-                menu.addItem(command("Paste All") { [controller] in controller.pasteAllFromStack(afterMenu: true) })
-            }
-            menu.addItem(.separator())
-        }
-
         menu.addItem(command(controller.phase == .idle ? "Start Dictation" : "Stop Dictation",
                              shortcut: settings.trigger.shortLabel, enabled: controller.phase != .finishing) { [controller] in
             controller.toggleFromMenu()
@@ -140,13 +125,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let stackMode = command("Stack Mode") { [controller] in controller.toggleStackMode() }
         stackMode.state = settings.stackMode ? .on : .off
         menu.addItem(stackMode)
-        // An empty stack opens with your last dictations, so you can paste them again.
-        menu.addItem(command("Open Stack", enabled: hasDictations || !stack.isEmpty || settings.stackMode) {
+        // The stack itself is where you see and use what's in it (an empty one opens with your last dictations).
+        menu.addItem(command("Open Stack", enabled: hasDictations || !DictationStack.shared.items.isEmpty || settings.stackMode) {
             StackPanel.shared.open()
         })
-        if !stack.isEmpty {
-            menu.addItem(command("Clear Stack") { DictationStack.shared.clear() })
-        }
 
         menu.addItem(.separator())
         menu.addItem(command("Transcribe Audio Files…") { FilesWindow.shared.show() })

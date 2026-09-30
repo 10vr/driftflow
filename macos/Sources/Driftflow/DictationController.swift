@@ -444,21 +444,20 @@ final class DictationController: ObservableObject {
         }
     }
 
-    /// A line clicked in the stack (or its menu): pasted where your cursor is, then out of the stack.
-    func paste(fromStack item: StackItem, afterMenu: Bool = false) {
-        pasteFromStack(item.text, ids: [item.id], afterMenu: afterMenu)
+    /// A line clicked in the stack: pasted where your cursor is, then out of the stack.
+    func paste(fromStack item: StackItem) {
+        pasteFromStack(item.text, ids: [item.id])
     }
 
     /// Paste All: the whole stack at your cursor, top to bottom.
-    func pasteAllFromStack(afterMenu: Bool = false) {
+    func pasteAllFromStack() {
         let items = DictationStack.shared.items
         guard !items.isEmpty else { return }
-        pasteFromStack(DictationStack.shared.joined, ids: items.map(\.id), afterMenu: afterMenu)
+        pasteFromStack(DictationStack.shared.joined, ids: items.map(\.id))
     }
 
-    private func pasteFromStack(_ text: String, ids: [UUID], afterMenu: Bool) {
+    private func pasteFromStack(_ text: String, ids: [UUID]) {
         Task {
-            if afterMenu { try? await Task.sleep(for: .milliseconds(250)) } // let the menu close first
             if await nothingToPasteInto() {
                 showToast(HUDToast(icon: "character.cursor.ibeam", text: "Click into a text box first, then choose it again."), for: 3)
                 return

@@ -517,6 +517,9 @@ struct StackView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                if !stack.items.isEmpty {
+                    pillButton("Clear", help: "Empty the stack") { DictationStack.shared.clear() }
+                }
                 pillButton("Hide", help: "Put the stack away (Stack Mode turns off). Open Stack in the menu brings everything back.") {
                     StackPanel.shared.hide()
                 }
