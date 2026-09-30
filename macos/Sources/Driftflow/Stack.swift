@@ -1220,9 +1220,9 @@ struct StackView: View {
     }
 }
 
-/// The panel's content: tells when the pointer enters the window (the tab, while it's closed).
-/// macOS does the watching, so nothing runs while the pointer is elsewhere.
-private final class PointerWatchingView: NSView {
+/// A panel's content: tells when the pointer enters the window (the stack's tab, or the idle pill,
+/// while the window is shrunk to it). macOS does the watching, so nothing runs meanwhile.
+final class PointerWatchingView: NSView {
     var onEnter: () -> Void = {}
 
     override func updateTrackingAreas() {

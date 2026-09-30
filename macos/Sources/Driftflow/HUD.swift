@@ -28,31 +28,71 @@ enum HUDPosition: String, CaseIterable, Identifiable {
 }
 
 /// A transparent, non-activating panel that sits over every app. SwiftUI animates the pill inside
-/// it, so the window itself never resizes (window resizes make other overlays stutter). Clicks pass
-/// through everywhere except the pill itself, which is clickable in hands-free mode, on toasts and
-/// in its idle state.
+/// it, so the window itself never resizes while the pill is in use (window resizes make other
+/// overlays stutter). Clicks pass through everywhere except the pill itself, which is clickable in
+/// hands-free mode, on toasts and in its idle state.
+///
+/// When only the idle pill is showing (between dictations, if you keep it on screen), the window
+/// shrinks to the pill and macOS reports when the pointer arrives, so nothing runs meanwhile.
 @MainActor
 final class HUDController {
     private var panel: NSPanel?
+    private var host: NSView?
     private let canvas = NSSize(width: 720, height: 200)
     /// The pill's (and toast's) frame in panel coordinates, reported by SwiftUI.
     var hitRect: CGRect = .zero
     private var mouseTimer: Timer?
     /// When the pointer left the pill (for the hover grace period).
     private var leftAt: Date?
+    /// Where the whole canvas sits on screen (bottom-left), whatever size the window is now.
+    private var canvasOrigin = NSPoint.zero
+    /// Shrunk to the idle pill (see above).
+    private var collapsed = false
+    /// Nothing on screen but the idle pill: no dictation, no message.
+    private var idleOnly: () -> Bool = { false }
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
     func show(_ controller: DictationController, position: HUDPosition) {
         let panel = panel ?? makePanel(controller)
         self.panel = panel
+        idleOnly = { [weak controller] in
+            guard let controller else { return false }
+            return controller.phase == .idle && !controller.hudVisible && controller.toast == nil
+        }
         if let screen = Self.activeScreen() {
             let visible = screen.visibleFrame
             let y = position == .bottom ? visible.minY + 12 : visible.maxY - canvas.height - 2
-            panel.setFrameOrigin(NSPoint(x: visible.midX - canvas.width / 2, y: y))
+            canvasOrigin = NSPoint(x: visible.midX - canvas.width / 2, y: y)
         }
+        collapsed = false // something new to show: the whole canvas, before it animates in
+        applyFrame()
         panel.appearance = Self.systemAppearance
         panel.orderFrontRegardless()
+        startTrackingMouse()
+    }
+
+    /// Shrunk: the window is the idle pill with a margin, the content shifted so the pill stays put.
+    private func applyFrame() {
+        guard let panel, let host else { return }
+        if collapsed, hitRect != .zero {
+            let pill = hitRect.insetBy(dx: -16, dy: -12)
+            panel.setFrame(NSRect(x: canvasOrigin.x + pill.minX, y: canvasOrigin.y + canvas.height - pill.maxY,
+                                  width: pill.width, height: pill.height), display: true)
+            host.frame = NSRect(x: -pill.minX, y: -(canvas.height - pill.maxY), width: canvas.width, height: canvas.height)
+            panel.ignoresMouseEvents = false
+        } else {
+            panel.setFrame(NSRect(origin: canvasOrigin, size: canvas), display: true)
+            host.frame = NSRect(origin: .zero, size: canvas)
+        }
+    }
+
+    /// The pointer came to the shrunk idle pill: the whole canvas (it grows into a hint), followed.
+    private func pointerEntered() {
+        guard collapsed else { return }
+        collapsed = false
+        applyFrame()
+        panel?.ignoresMouseEvents = true // the timer lets clicks through to the pill again
         startTrackingMouse()
     }
 
@@ -72,6 +112,7 @@ final class HUDController {
 
     func hide() {
         // The SwiftUI content animates itself out; the empty panel is then removed.
+        collapsed = false
         panel?.orderOut(nil)
         mouseTimer?.invalidate()
         mouseTimer = nil
@@ -109,9 +150,9 @@ final class HUDController {
         guard mouseTimer == nil else { return }
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             onMainThread {
-                guard let self, let panel = self.panel, HUDHover.shared.forced == nil else { return }
+                guard let self, let panel = self.panel, HUDHover.shared.forced == nil, !self.collapsed else { return }
                 let mouse = NSEvent.mouseLocation
-                let local = CGPoint(x: mouse.x - panel.frame.minX, y: panel.frame.maxY - mouse.y) // SwiftUI: top-left origin
+                let local = CGPoint(x: mouse.x - self.canvasOrigin.x, y: self.canvasOrigin.y + self.canvas.height - mouse.y) // SwiftUI: top-left origin
                 // Hysteresis: easy to enter, a wider margin to leave, and a short grace period before
                 // hiding, so the edge of the pill never flickers between hovered and not.
                 let hovering = HUDHover.shared.isOver
@@ -120,8 +161,27 @@ final class HUDController {
                 let over = inside || (hovering && Date().timeIntervalSince(self.leftAt ?? .distantPast) < 0.25)
                 if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
                 if hovering != over { HUDHover.shared.isOver = over }
+                // Only the idle pill, and the pointer well away for a moment (its hint has shrunk
+                // back): shrink to it and stop following until the pointer comes back.
+                let near = self.hitRect.insetBy(dx: -24, dy: -24).contains(local)
+                if self.idleOnly(), !over, !near {
+                    if self.idleSince == nil { self.idleSince = Date() }
+                    if Date().timeIntervalSince(self.idleSince ?? Date()) > 0.5 { self.shrinkToIdlePill() }
+                } else {
+                    self.idleSince = nil
+                }
             }
         }
+    }
+
+    private var idleSince: Date?
+
+    private func shrinkToIdlePill() {
+        mouseTimer?.invalidate()
+        mouseTimer = nil
+        idleSince = nil
+        collapsed = true
+        applyFrame()
     }
 
     private func makePanel(_ controller: DictationController) -> NSPanel {
@@ -145,7 +205,11 @@ final class HUDController {
             self?.hitRect = rect
         })
         host.frame = NSRect(origin: .zero, size: canvas)
-        panel.contentView = host
+        let container = PointerWatchingView(frame: NSRect(origin: .zero, size: canvas))
+        container.onEnter = { [weak self] in self?.pointerEntered() }
+        container.addSubview(host)
+        panel.contentView = container
+        self.host = host
         panel.appearance = Self.systemAppearance
         observeAppearance()
         return panel

@@ -579,7 +579,8 @@ final class DictationController: ObservableObject {
         AppLog.info("Notice: " + (toast.icon == "character.book.closed" || toast.text.contains("Vocabulary") ? "vocabulary suggestion" : toast.text))
         toastWork?.cancel()
         self.toast = toast
-        if !hud.isVisible { hud.show(self, position: settings.hudPosition) }
+        // Also when the idle pill is showing: its window may be shrunk to the pill.
+        hud.show(self, position: settings.hudPosition)
         let work = DispatchWorkItem { [weak self] in self?.dismissToast() }
         toastWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
@@ -1220,6 +1221,18 @@ final class DictationController: ObservableObject {
     /// its own windows without Screen Recording access) at fixed times, including the first frames
     /// after the pill appears, where the old adaptive glass flipped. Quits when done.
     func runHUDDemo(to directory: URL) async {
+        // DRIFTFLOW_DEMO_IDLE=<seconds>: only the idle pill on screen that long, to measure what it
+        // costs between dictations (sample the process with `top`). Your setting is put back after.
+        if let seconds = ProcessInfo.processInfo.environment["DRIFTFLOW_DEMO_IDLE"].flatMap(Double.init) {
+            let saved = settings.showIdlePill
+            settings.showIdlePill = true
+            hud.show(self, position: settings.hudPosition)
+            print("idle pill showing for \(Int(seconds)) s")
+            try? await Task.sleep(for: .seconds(seconds))
+            settings.showIdlePill = saved
+            NSApp.terminate(nil)
+            return
+        }
         // The screen the pill will appear on (the one you're working on).
         let screen = HUDController.activeScreen() ?? NSScreen.main ?? NSScreen.screens[0]
         let backdrop = NSWindow(contentRect: NSRect(x: screen.frame.minX, y: screen.frame.minY, width: screen.frame.width, height: 320),
