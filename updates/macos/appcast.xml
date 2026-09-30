@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.18</title>
+            <pubDate>Wed, 30 Sep 2026 08:29:34 GMT</pubDate>
+            <sparkle:version>202609301628</sparkle:version>
+            <sparkle:shortVersionString>0.2.18</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>New: the Stack. Add a dictation to it with the new button on the pill, or turn on Stack Mode to collect everything you say, then paste the lines one at a time, all at once, or drag them into any text box.</p><p>Pin lines you use again and again, keep a separate stack for each message or person, and see them all on the new Stacks page.</p><p>A dictation that ends where there&#x27;s nothing to paste into (the desktop, a file list) now goes into your stack instead of being lost.</p><p>Transcribe Files now lists WhatsApp voice notes (.opus, .ogg), which work without anything extra on macOS 26.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.18/Driftflow-0.2.18-macOS.zip" type="application/octet-stream" sparkle:edSignature="DHrMhbMx2SXsShxtbBrckLnmzBV2O0cKQb4xu89E75MI0mTk+Dwgoqhk0oSfKUUm8VkG5YVlUj4hcz9TFU+cDw==" length="13778361"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.17</title>
             <pubDate>Wed, 30 Sep 2026 03:04:09 GMT</pubDate>
             <sparkle:version>202609301103</sparkle:version>
