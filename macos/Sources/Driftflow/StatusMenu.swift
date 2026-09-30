@@ -24,15 +24,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.$phase
             .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshIcon() } }
             .store(in: &cancellables)
-        DictationBag.shared.$items.map(\.count).removeDuplicates()
+        DictationStack.shared.$items.map(\.count).removeDuplicates()
             .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshIcon() } }
             .store(in: &cancellables)
     }
 
-    /// How many dictations wait in the bag, next to the icon (so it's findable with the tab hidden).
-    private func showBagCount() {
+    /// How many dictations wait in the stack, next to the icon (so it's findable with the tab hidden).
+    private func showStackCount() {
         guard let item, let button = item.button else { return }
-        let count = DictationBag.shared.items.count
+        let count = DictationStack.shared.items.count
         item.length = count > 0 ? NSStatusItem.variableLength : NSStatusItem.squareLength
         button.imagePosition = count > 0 ? .imageLeading : .imageOnly
         button.attributedTitle = NSAttributedString(string: count > 0 ? "\(count)" : "", attributes: [
@@ -42,7 +42,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     /// The waveform, filled while listening, with a blue dot while an update waits to be installed.
     func refreshIcon() {
-        defer { showBagCount() }
+        defer { showStackCount() }
         let listening = controller.phase != .idle
         let symbol = NSImage(systemSymbolName: listening ? "waveform.circle.fill" : "waveform", accessibilityDescription: "Driftflow")
         guard Updater.shared.readyVersion != nil, !listening, let symbol else {
@@ -106,14 +106,17 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
         }
 
-        let bag = DictationBag.shared.items
-        if !bag.isEmpty {
-            menu.addItem(NSMenuItem.sectionHeader(title: "In Your Bag · Click to Paste"))
-            for entry in bag {
+        let stack = DictationStack.shared.items
+        if !stack.isEmpty {
+            menu.addItem(NSMenuItem.sectionHeader(title: "In Your Stack · Click to Paste"))
+            for (index, entry) in stack.enumerated() {
                 let text = entry.text
-                menu.addItem(command(text.count > 48 ? String(text.prefix(47)) + "…" : text) { [controller] in
-                    controller.paste(fromBag: entry, afterMenu: true)
+                menu.addItem(command("\(index + 1). " + (text.count > 48 ? String(text.prefix(47)) + "…" : text)) { [controller] in
+                    controller.paste(fromStack: entry, afterMenu: true)
                 })
+            }
+            if stack.count > 1 {
+                menu.addItem(command("Paste All") { [controller] in controller.pasteAllFromStack(afterMenu: true) })
             }
             menu.addItem(.separator())
         }
@@ -132,10 +135,18 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(command("Paste Last Dictation", shortcut: settings.pasteLastShortcut?.display, enabled: hasDictations) { [controller] in
             controller.pasteLastDictation()
         })
-        // An empty bag opens with your last dictations, so you can paste them again.
-        menu.addItem(command("Open Bag", enabled: hasDictations || !DictationBag.shared.items.isEmpty) {
-            BagPanel.shared.open()
+
+        menu.addItem(.separator())
+        let stackMode = command("Stack Mode") { [controller] in controller.toggleStackMode() }
+        stackMode.state = settings.stackMode ? .on : .off
+        menu.addItem(stackMode)
+        // An empty stack opens with your last dictations, so you can paste them again.
+        menu.addItem(command("Open Stack", enabled: hasDictations || !stack.isEmpty || settings.stackMode) {
+            StackPanel.shared.open()
         })
+        if !stack.isEmpty {
+            menu.addItem(command("Clear Stack") { DictationStack.shared.clear() })
+        }
 
         menu.addItem(.separator())
         menu.addItem(command("Transcribe Audio Files…") { FilesWindow.shared.show() })

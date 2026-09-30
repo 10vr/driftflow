@@ -26,10 +26,12 @@ final class DictationController: ObservableObject {
     /// Bumped after each successful insert; drives the checkmark animation.
     @Published private(set) var completedCount = 0
     @Published private(set) var cancelled = false
-    /// The most recent dictation went into the bag instead of being pasted (the pill shows a tray).
-    @Published private(set) var lastWentToBag = false
-    /// The bag button on the pill finished this dictation: keep it rather than paste it.
-    private var toBag = false
+    /// The most recent dictation went into the stack instead of being pasted (the pill shows a stack).
+    @Published private(set) var lastWentToStack = false
+    /// The stack button on the pill finished this dictation: keep it rather than paste it.
+    private var toStack = false
+    /// ✓ on the pill in Stack Mode: paste this one after all.
+    private var pasteNow = false
     /// Key release → text handed to the target app, for the most recent dictation.
     @Published private(set) var lastLatencyMs: Int?
     /// Time the microphone took to deliver audio on its most recent cold start.
@@ -437,13 +439,24 @@ final class DictationController: ObservableObject {
                 try? await Task.sleep(for: .milliseconds(250)) // let the menu close first
             }
             if inserter.insert(last.text, method: settings.insertionMethod, restoreClipboard: settings.restoreClipboard) == .inserted {
-                DictationBag.shared.remove(text: last.text)
+                DictationStack.shared.remove(text: last.text)
             }
         }
     }
 
-    /// A line clicked in the bag (or its menu): pasted where your cursor is, then out of the bag.
-    func paste(fromBag item: BagItem, afterMenu: Bool = false) {
+    /// A line clicked in the stack (or its menu): pasted where your cursor is, then out of the stack.
+    func paste(fromStack item: StackItem, afterMenu: Bool = false) {
+        pasteFromStack(item.text, ids: [item.id], afterMenu: afterMenu)
+    }
+
+    /// Paste All: the whole stack at your cursor, top to bottom.
+    func pasteAllFromStack(afterMenu: Bool = false) {
+        let items = DictationStack.shared.items
+        guard !items.isEmpty else { return }
+        pasteFromStack(DictationStack.shared.joined, ids: items.map(\.id), afterMenu: afterMenu)
+    }
+
+    private func pasteFromStack(_ text: String, ids: [UUID], afterMenu: Bool) {
         Task {
             if afterMenu { try? await Task.sleep(for: .milliseconds(250)) } // let the menu close first
             if await nothingToPasteInto() {
@@ -451,8 +464,14 @@ final class DictationController: ObservableObject {
                 return
             }
             let context = settings.smartSpacing && accessibilityGranted ? await CaretContext.capture() : .unknown
-            if deliver(item.text, context: context) { DictationBag.shared.remove(item.id) }
+            if deliver(text, context: context) { DictationStack.shared.remove(ids) }
         }
+    }
+
+    /// Stack Mode in the menu: every dictation goes into the stack until it's turned off.
+    func toggleStackMode() {
+        settings.stackMode.toggle()
+        if settings.stackMode { DictationStack.shared.show() }
     }
 
     /// True only when the app you're in clearly has no text box selected (see `TextBoxCheck`).
@@ -599,10 +618,17 @@ final class DictationController: ObservableObject {
         }
     }
 
-    /// The bag button on the pill: finish now and keep the text in the bag.
-    func finishIntoBag() {
+    /// The stack button on the pill: finish now and keep the text in the stack.
+    func finishIntoStack() {
         guard phase == .listening, editSelection == nil else { return }
-        toBag = true
+        toStack = true
+        stop(commit: true)
+    }
+
+    /// ✓ on the pill: finish and paste (in Stack Mode too).
+    func finishAndPaste() {
+        guard phase == .listening else { return }
+        pasteNow = true
         stop(commit: true)
     }
 
@@ -633,8 +659,9 @@ final class DictationController: ObservableObject {
         let generation = generation
         pendingPress = false
         cancelled = false
-        lastWentToBag = false
-        toBag = false
+        lastWentToStack = false
+        toStack = false
+        pasteNow = false
         appleHasText = false
         earlyText = nil
         phase = .listening
@@ -832,18 +859,20 @@ final class DictationController: ObservableObject {
                                            text: "Couldn't remove your last dictation: the text has changed since, or it's in another app."), for: 4)
                     }
                 }
-                // Into the bag when you asked for it, or when there's clearly no text box to paste into.
+                // Into the stack when you asked for it (the pill's button, Stack Mode), or when there's
+                // clearly no text box to paste into.
+                let stacking = !text.isEmpty && !pasteNow && (toStack || settings.stackMode)
                 var noTextBox = false
-                if !toBag, !text.isEmpty, settings.autoPaste { noTextBox = await nothingToPasteInto() }
+                if !stacking, !text.isEmpty, settings.autoPaste { noTextBox = await nothingToPasteInto() }
                 guard generation == self.generation else { return }
-                let bagged = !text.isEmpty && (toBag || noTextBox)
-                if bagged {
-                    DictationBag.shared.add(text)
-                    lastWentToBag = true
+                let stacked = stacking || (!text.isEmpty && noTextBox)
+                if stacked {
+                    DictationStack.shared.add(text)
+                    lastWentToStack = true
                     if noTextBox {
-                        showToast(HUDToast(icon: "tray.full", text: settings.bagTab == .hidden
-                            ? "No text box here, so it's in your bag (in the menu bar)."
-                            : "No text box here, so it's in your bag."), for: 3)
+                        showToast(HUDToast(icon: "rectangle.stack", text: settings.stackTab == .hidden
+                            ? "No text box here, so it's in your stack (in the menu bar)."
+                            : "No text box here, so it's in your stack."), for: 3)
                     }
                 } else {
                     inserted = deliver(text, context: context)
@@ -851,7 +880,7 @@ final class DictationController: ObservableObject {
                 let latency = Self.milliseconds(clock.now - releasedAt)
                 // Length and timing only: what was said is never logged.
                 AppLog.info("Dictation finished: \(text.split(whereSeparator: \.isWhitespace).count) words, "
-                    + "\(bagged ? (noTextBox ? "put in the bag (no text box)" : "put in the bag") : inserted ? "inserted" : "not inserted") \(latency) ms after release")
+                    + "\(stacked ? (noTextBox ? "put in the stack (no text box)" : "put in the stack") : inserted ? "inserted" : "not inserted") \(latency) ms after release")
                 if inserted {
                     lastLatencyMs = latency
                     if rules.pressReturn {
@@ -877,8 +906,8 @@ final class DictationController: ObservableObject {
                 show(error: error.localizedDescription)
             }
             if failed { rescue(session) }
-            finishUp(hideAfter: inserted || lastWentToBag ? 0.5 : 0)
-            if inserted || lastWentToBag { completedCount += 1 }
+            finishUp(hideAfter: inserted || lastWentToStack ? 0.5 : 0)
+            if inserted || lastWentToStack { completedCount += 1 }
         }
     }
 

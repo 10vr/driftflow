@@ -126,8 +126,10 @@ final class AppSettings: ObservableObject {
     @Published var keepFailedAudio: Bool { didSet { defaults.set(keepFailedAudio, forKey: "keepFailedAudio") } }
     /// Keep a thin pill on screen between dictations; hover to see the key, click to start.
     @Published var showIdlePill: Bool { didSet { defaults.set(showIdlePill, forKey: "showIdlePill") } }
-    /// How the bag's tab shows at the bottom right of the screen while it holds dictations.
-    @Published var bagTab: BagTabStyle { didSet { defaults.set(bagTab.rawValue, forKey: "bagTab") } }
+    /// How the stack's tab shows at the bottom right of the screen while it holds dictations.
+    @Published var stackTab: StackTabStyle { didSet { defaults.set(stackTab.rawValue, forKey: "stackTab") } }
+    /// Every dictation goes into the stack instead of being pasted.
+    @Published var stackMode: Bool { didSet { defaults.set(stackMode, forKey: "stackMode") } }
     /// Microphones in order of preference: Driftflow records from the first one that's connected.
     /// "System default" (uid "") is an entry too, always available, so it can be ranked anywhere.
     @Published var micPriority: [MicPreference] {
@@ -183,7 +185,8 @@ final class AppSettings: ObservableObject {
             "showInDock": true,
             "inputDeviceUID": "",
             "showIdlePill": false,
-            "bagTab": BagTabStyle.faded.rawValue,
+            "stackTab": StackTabStyle.faded.rawValue,
+            "stackMode": false,
             "keepFailedAudio": true,
             "duckAudio": true,
             "aiStyle": AIStyle.literal.rawValue,
@@ -213,7 +216,8 @@ final class AppSettings: ObservableObject {
         editShortcut = defaults.object(forKey: "editShortcut") == nil ? .editDefault : Self.combo(defaults, "editShortcut")
         learnCorrections = defaults.bool(forKey: "learnCorrections")
         showIdlePill = defaults.bool(forKey: "showIdlePill")
-        bagTab = BagTabStyle(rawValue: defaults.string(forKey: "bagTab") ?? "") ?? .faded
+        stackTab = StackTabStyle(rawValue: defaults.string(forKey: "stackTab") ?? "") ?? .faded
+        stackMode = defaults.bool(forKey: "stackMode")
         keepFailedAudio = defaults.bool(forKey: "keepFailedAudio")
         duckAudio = defaults.bool(forKey: "duckAudio")
         pasteLastShortcut = defaults.object(forKey: "pasteLastShortcut") == nil ? .pasteLastDefault : Self.combo(defaults, "pasteLastShortcut")
