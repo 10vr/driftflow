@@ -78,36 +78,56 @@ enum BagTabStyle: String, CaseIterable, Identifiable {
     }
 }
 
-struct BagItem: Identifiable, Equatable {
-    let id = UUID()
+struct BagItem: Identifiable, Equatable, Codable {
+    var id = UUID()
     let text: String
     let added: Date
 }
 
 /// Dictations waiting to be pasted: ones you put in the bag from the pill, and ones that had no
-/// text box to go into. The newest is first; each stays an hour (they're in History anyway).
+/// text box to go into. The newest is first. They stay until you use or remove them (a fourth
+/// pushes the oldest out), across restarts too: kept on this Mac next to History, and only in
+/// memory when History is off.
 @MainActor
 final class DictationBag: ObservableObject {
     static let shared = DictationBag()
     static let capacity = 3
-    static let keepFor: TimeInterval = 60 * 60
 
-    @Published private(set) var items: [BagItem] = []
+    @Published private(set) var items: [BagItem] = [] { didSet { save() } }
     /// Counts additions, so the tab can bounce when something goes in.
     @Published private(set) var addedCount = 0
-    private var expiry: Timer?
+    private let fileURL = AppData.directory.appendingPathComponent("bag.json")
+
+    private init() {
+        guard AppSettings.shared.historyRetention != .off, let data = try? Data(contentsOf: fileURL) else { return }
+        items = (try? JSONDecoder().decode([BagItem].self, from: data)) ?? []
+    }
 
     func add(_ text: String) {
         items.insert(BagItem(text: text, added: Date()), at: 0)
         if items.count > Self.capacity { items.removeLast(items.count - Self.capacity) }
         addedCount += 1
-        scheduleExpiry()
         BagPanel.shared.itemAdded()
     }
 
     func remove(_ id: UUID) {
         items.removeAll { $0.id == id }
-        scheduleExpiry()
+    }
+
+    /// An empty bag opened from the menu: your last dictations, to paste again.
+    func refillFromHistory() {
+        items = HistoryStore.shared.entries.filter { $0.status == nil && !$0.text.isEmpty }
+            .prefix(Self.capacity)
+            .map { BagItem(text: $0.text, added: $0.date) }
+    }
+
+    private func save() {
+        guard AppSettings.shared.historyRetention != .off, !items.isEmpty else {
+            try? FileManager.default.removeItem(at: fileURL)
+            return
+        }
+        try? FileManager.default.createDirectory(at: AppData.directory, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(items).write(to: fileURL, options: [.atomic])
     }
 
     /// After Paste Last Dictation used the newest dictation, it's no longer waiting.
@@ -116,22 +136,16 @@ final class DictationBag: ObservableObject {
         remove(item.id)
     }
 
-    func timeLeft(_ item: BagItem, now: Date = Date()) -> TimeInterval {
-        Self.keepFor - now.timeIntervalSince(item.added)
-    }
-
-    /// One timer, for the oldest item, rather than a clock ticking all the time.
-    private func scheduleExpiry() {
-        expiry?.invalidate()
-        expiry = nil
-        items.removeAll { timeLeft($0) <= 0 }
-        guard let oldest = items.last else { return }
-        let timer = Timer(timeInterval: max(1, timeLeft(oldest)), repeats: false) { [weak self] _ in
-            onMainThread { self?.scheduleExpiry() }
+    /// "just now", "5 min ago", "yesterday"…
+    static func age(of item: BagItem, now: Date = Date()) -> String {
+        let minutes = Int(now.timeIntervalSince(item.added) / 60)
+        switch minutes {
+        case ..<1: return "just now"
+        case ..<60: return "\(minutes) min ago"
+        case ..<(24 * 60): return "\(minutes / 60) hr ago"
+        case ..<(48 * 60): return "yesterday"
+        default: return "\(minutes / (24 * 60)) days ago"
         }
-        timer.tolerance = 5
-        RunLoop.main.add(timer, forMode: .common)
-        expiry = timer
     }
 }
 
@@ -147,6 +161,11 @@ final class BagPanelState: ObservableObject {
     var rowFrames: [UUID: CGRect] = [:]
     /// `--bag-demo`: open or closed regardless of the pointer.
     var forced: Bool?
+    /// Opened from the menu: stays open until the pointer has been in and left again (or it never
+    /// comes, `pinnedUntil`), even with the tab hidden.
+    var pinned = false
+    var pinnedEntered = false
+    var pinnedUntil = Date.distantPast
 }
 
 /// The bag's tab at the bottom right of the screen and the list that slides up from it. Like the
@@ -186,8 +205,21 @@ final class BagPanel {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
     }
 
+    /// Open Bag in the menu: the list, open, until you've used it (with your last dictations if it's empty).
+    func open() {
+        if DictationBag.shared.items.isEmpty { DictationBag.shared.refillFromHistory() }
+        guard !DictationBag.shared.items.isEmpty else { return }
+        state.pinned = true
+        state.pinnedEntered = false
+        state.pinnedUntil = Date().addingTimeInterval(10)
+        refresh()
+        place(on: nil)
+        track(fast: true)
+    }
+
     private func refresh() {
-        guard !DictationBag.shared.items.isEmpty, AppSettings.shared.bagTab != .hidden else {
+        guard !DictationBag.shared.items.isEmpty, AppSettings.shared.bagTab != .hidden || state.pinned else {
+            state.pinned = false
             panel?.orderOut(nil)
             timer?.invalidate()
             timer = nil
@@ -234,7 +266,18 @@ final class BagPanel {
             if inside { leftAt = nil } else if state.expanded, leftAt == nil { leftAt = Date() }
             // Stays open while you drag a line out of it, and for a moment after the pointer leaves.
             let dragging = state.expanded && NSEvent.pressedMouseButtons != 0
-            open = inside || dragging || (state.expanded && Date().timeIntervalSince(leftAt ?? .distantPast) < 0.35)
+            let lingering = state.expanded && Date().timeIntervalSince(leftAt ?? .distantPast) < 0.35
+            if state.pinned {
+                if inside { state.pinnedEntered = true }
+                if state.pinnedEntered ? !(inside || dragging || lingering) : Date() > state.pinnedUntil {
+                    state.pinned = false
+                    if AppSettings.shared.bagTab == .hidden {
+                        refresh()
+                        return
+                    }
+                }
+            }
+            open = state.pinned || inside || dragging || lingering
         }
         if panel.ignoresMouseEvents == open { panel.ignoresMouseEvents = !open }
         if state.expanded != open {
@@ -269,9 +312,11 @@ final class BagPanel {
     // MARK: Demo
 
     /// `--bag-demo <folder>`: the tab and the open list over black and white, captured to PNGs.
+    /// Run with DRIFTFLOW_DATA_DIR set, so the demo's lines don't land in your real bag.
     func runDemo(to directory: URL) async {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
+        let savedStyle = AppSettings.shared.bagTab
         let backdrop = NSWindow(contentRect: NSRect(x: visible.maxX - canvas.width - 20, y: visible.minY, width: canvas.width + 20, height: canvas.height),
                                 styleMask: .borderless, backing: .buffered, defer: false)
         backdrop.level = .floating
@@ -307,7 +352,7 @@ final class BagPanel {
             DictationController.capture(region, to: directory.appendingPathComponent("\(name)-hover.png"))
             state.hovered = nil
         }
-        AppSettings.shared.bagTab = .faded
+        AppSettings.shared.bagTab = savedStyle
         NSApp.terminate(nil)
     }
 }
@@ -401,7 +446,6 @@ struct BagView: View {
 
     private func row(_ item: BagItem, now: Date) -> some View {
         let hovered = state.hovered == item.id
-        let minutes = max(1, Int((bag.timeLeft(item, now: now) / 60).rounded(.up)))
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(item.text)
                 .font(.system(size: 13, weight: .medium, design: .rounded))
@@ -409,7 +453,7 @@ struct BagView: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("\(minutes) min")
+            Text(DictationBag.age(of: item, now: now))
                 .font(.system(size: 11, weight: .medium, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)

@@ -132,6 +132,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(command("Paste Last Dictation", shortcut: settings.pasteLastShortcut?.display, enabled: hasDictations) { [controller] in
             controller.pasteLastDictation()
         })
+        // An empty bag opens with your last dictations, so you can paste them again.
+        menu.addItem(command("Open Bag", enabled: hasDictations || !DictationBag.shared.items.isEmpty) {
+            BagPanel.shared.open()
+        })
 
         menu.addItem(.separator())
         menu.addItem(command("Transcribe Audio Files…") { FilesWindow.shared.show() })

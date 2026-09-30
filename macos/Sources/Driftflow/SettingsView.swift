@@ -195,7 +195,7 @@ private struct GeneralPane: View {
                 Picker("Bag", selection: $settings.bagTab) {
                     ForEach(BagTabStyle.allCases) { Text($0.label).tag($0) }
                 }
-                .help("Dictations you put in the bag from the pill, or that had no text box to go into, wait at the bottom right of the screen for an hour. Click one to paste it, or drag it into a text box.")
+                .help("Dictations you put in the bag from the pill, or that had no text box to go into, wait at the bottom right of the screen until you use or remove them. Click one to paste it, or drag it into a text box. Open Bag in the menu bar menu brings it back with your last dictations.")
                 Toggle("Play start and stop sounds", isOn: $settings.playSounds)
                 Toggle("Lower other audio while dictating", isOn: $settings.duckAudio)
                     .help("Music and videos drop to 30% volume while you speak and come back when you finish.")
