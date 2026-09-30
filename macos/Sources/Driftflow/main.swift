@@ -1,4 +1,5 @@
 import ObjCSupport
+import AppKit
 import AVFoundation
 import Foundation
 import ServiceManagement
@@ -8,7 +9,7 @@ import ServiceManagement
 let arguments = CommandLine.arguments
 /// Options that run inside the app itself (see DriftflowApp); anything else starting with "--" is
 /// a command-line tool below.
-let guiOptions: Set<String> = ["--scratch-test", "--hud-demo", "--demo", "--snapshot", "--mic-test", "--tap-test", "--perf-test"]
+let guiOptions: Set<String> = ["--scratch-test", "--hud-demo", "--demo", "--snapshot", "--mic-test", "--tap-test", "--perf-test", "--bag-demo"]
 
 if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.count {
     let path = arguments[index + 1]
@@ -367,6 +368,15 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
         exit(0)
     }
     dispatchMain()
+} else if arguments.contains("--focus-probe") {
+    // What each open app has selected, and whether a dictation would be pasted there or put in the
+    // bag. Read-only: nothing is focused, typed or copied.
+    print("Accessibility:", AXIsProcessTrusted() ? "on" : "off")
+    for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+        let (result, detail) = TextBoxCheck.inspect(pid: app.processIdentifier)
+        let front = app.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier ? " [in front]" : ""
+        print("\(app.localizedName ?? "?") (\(app.bundleIdentifier ?? ""))\(front) → \(result) · \(detail)")
+    }
 } else if arguments.contains("--login-status") {
     // Whether macOS will open Driftflow at login (Login Items).
     print("login item:", LoginItem.isEnabled ? "enabled" : LoginItem.needsApproval ? "needs approval" : "off", "(raw status \(SMAppService.mainApp.status.rawValue))")

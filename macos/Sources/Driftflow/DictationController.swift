@@ -26,6 +26,10 @@ final class DictationController: ObservableObject {
     /// Bumped after each successful insert; drives the checkmark animation.
     @Published private(set) var completedCount = 0
     @Published private(set) var cancelled = false
+    /// The most recent dictation went into the bag instead of being pasted (the pill shows a tray).
+    @Published private(set) var lastWentToBag = false
+    /// The bag button on the pill finished this dictation: keep it rather than paste it.
+    private var toBag = false
     /// Key release → text handed to the target app, for the most recent dictation.
     @Published private(set) var lastLatencyMs: Int?
     /// Time the microphone took to deliver audio on its most recent cold start.
@@ -432,8 +436,31 @@ final class DictationController: ObservableObject {
             } else {
                 try? await Task.sleep(for: .milliseconds(250)) // let the menu close first
             }
-            _ = inserter.insert(last.text, method: settings.insertionMethod, restoreClipboard: settings.restoreClipboard)
+            if inserter.insert(last.text, method: settings.insertionMethod, restoreClipboard: settings.restoreClipboard) == .inserted {
+                DictationBag.shared.remove(text: last.text)
+            }
         }
+    }
+
+    /// A line clicked in the bag (or its menu): pasted where your cursor is, then out of the bag.
+    func paste(fromBag item: BagItem, afterMenu: Bool = false) {
+        Task {
+            if afterMenu { try? await Task.sleep(for: .milliseconds(250)) } // let the menu close first
+            if await nothingToPasteInto() {
+                showToast(HUDToast(icon: "character.cursor.ibeam", text: "Click into a text box first, then choose it again."), for: 3)
+                return
+            }
+            let context = settings.smartSpacing && accessibilityGranted ? await CaretContext.capture() : .unknown
+            if deliver(item.text, context: context) { DictationBag.shared.remove(item.id) }
+        }
+    }
+
+    /// True only when the app you're in clearly has no text box selected (see `TextBoxCheck`).
+    private func nothingToPasteInto() async -> Bool {
+        guard accessibilityGranted, !TextInserter.frontmostIsRemoteDesktop,
+              let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              pid != ProcessInfo.processInfo.processIdentifier else { return false }
+        return await Task.detached(priority: .userInitiated) { TextBoxCheck.check(pid: pid) == .noTextBox }.value
     }
 
     /// Keeps a failed dictation's audio so it can be retried from History (if allowed).
@@ -572,6 +599,13 @@ final class DictationController: ObservableObject {
         }
     }
 
+    /// The bag button on the pill: finish now and keep the text in the bag.
+    func finishIntoBag() {
+        guard phase == .listening, editSelection == nil else { return }
+        toBag = true
+        stop(commit: true)
+    }
+
     func toggleFromMenu() {
         switch phase {
         case .idle:
@@ -599,6 +633,8 @@ final class DictationController: ObservableObject {
         let generation = generation
         pendingPress = false
         cancelled = false
+        lastWentToBag = false
+        toBag = false
         appleHasText = false
         earlyText = nil
         phase = .listening
@@ -796,11 +832,26 @@ final class DictationController: ObservableObject {
                                            text: "Couldn't remove your last dictation: the text has changed since, or it's in another app."), for: 4)
                     }
                 }
-                inserted = deliver(text, context: context)
+                // Into the bag when you asked for it, or when there's clearly no text box to paste into.
+                var noTextBox = false
+                if !toBag, !text.isEmpty, settings.autoPaste { noTextBox = await nothingToPasteInto() }
+                guard generation == self.generation else { return }
+                let bagged = !text.isEmpty && (toBag || noTextBox)
+                if bagged {
+                    DictationBag.shared.add(text)
+                    lastWentToBag = true
+                    if noTextBox {
+                        showToast(HUDToast(icon: "tray.full", text: settings.bagTab == .hidden
+                            ? "No text box here, so it's in your bag (in the menu bar)."
+                            : "No text box here, so it's in your bag."), for: 3)
+                    }
+                } else {
+                    inserted = deliver(text, context: context)
+                }
                 let latency = Self.milliseconds(clock.now - releasedAt)
                 // Length and timing only: what was said is never logged.
                 AppLog.info("Dictation finished: \(text.split(whereSeparator: \.isWhitespace).count) words, "
-                    + "\(inserted ? "inserted" : "not inserted") \(latency) ms after release")
+                    + "\(bagged ? (noTextBox ? "put in the bag (no text box)" : "put in the bag") : inserted ? "inserted" : "not inserted") \(latency) ms after release")
                 if inserted {
                     lastLatencyMs = latency
                     if rules.pressReturn {
@@ -826,8 +877,8 @@ final class DictationController: ObservableObject {
                 show(error: error.localizedDescription)
             }
             if failed { rescue(session) }
-            finishUp(hideAfter: inserted ? 0.5 : 0)
-            if inserted { completedCount += 1 }
+            finishUp(hideAfter: inserted || lastWentToBag ? 0.5 : 0)
+            if inserted || lastWentToBag { completedCount += 1 }
         }
     }
 
@@ -1144,7 +1195,7 @@ final class DictationController: ObservableObject {
 
     /// `CGWindowListCreateImage` is unavailable to Swift on macOS 15+, but still works for an app's
     /// own windows; looked up at run time for this developer aid only.
-    private static func capture(_ rect: CGRect, to url: URL) {
+    static func capture(_ rect: CGRect, to url: URL) {
         typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return }
         let create = unsafeBitCast(symbol, to: Fn.self)

@@ -24,10 +24,25 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.$phase
             .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshIcon() } }
             .store(in: &cancellables)
+        DictationBag.shared.$items.map(\.count).removeDuplicates()
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshIcon() } }
+            .store(in: &cancellables)
+    }
+
+    /// How many dictations wait in the bag, next to the icon (so it's findable with the tab hidden).
+    private func showBagCount() {
+        guard let item, let button = item.button else { return }
+        let count = DictationBag.shared.items.count
+        item.length = count > 0 ? NSStatusItem.variableLength : NSStatusItem.squareLength
+        button.imagePosition = count > 0 ? .imageLeading : .imageOnly
+        button.attributedTitle = NSAttributedString(string: count > 0 ? "\(count)" : "", attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
+        ])
     }
 
     /// The waveform, filled while listening, with a blue dot while an update waits to be installed.
     func refreshIcon() {
+        defer { showBagCount() }
         let listening = controller.phase != .idle
         let symbol = NSImage(systemSymbolName: listening ? "waveform.circle.fill" : "waveform", accessibilityDescription: "Driftflow")
         guard Updater.shared.readyVersion != nil, !listening, let symbol else {
@@ -88,6 +103,18 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             let line = NSMenuItem(title: status, action: nil, keyEquivalent: "")
             line.isEnabled = false
             menu.addItem(line)
+            menu.addItem(.separator())
+        }
+
+        let bag = DictationBag.shared.items
+        if !bag.isEmpty {
+            menu.addItem(NSMenuItem.sectionHeader(title: "In Your Bag · Click to Paste"))
+            for entry in bag {
+                let text = entry.text
+                menu.addItem(command(text.count > 48 ? String(text.prefix(47)) + "…" : text) { [controller] in
+                    controller.paste(fromBag: entry, afterMenu: true)
+                })
+            }
             menu.addItem(.separator())
         }
 

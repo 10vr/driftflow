@@ -57,7 +57,7 @@ final class HUDController {
     }
 
     /// The system's light/dark setting (not the app's, which a window may override).
-    private static var systemAppearance: NSAppearance? {
+    static var systemAppearance: NSAppearance? {
         let dark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
         return NSAppearance(named: dark ? .darkAqua : .aqua)
     }
@@ -78,7 +78,7 @@ final class HUDController {
     }
 
     /// The screen with the focused window of the app you're working in (falls back to the pointer's).
-    private static func activeScreen() -> NSScreen? {
+    static func activeScreen() -> NSScreen? {
         if let app = NSWorkspace.shared.frontmostApplication, Permissions.accessibilityGranted {
             let element = AXUIElementCreateApplication(app.processIdentifier)
             // A hung app must not freeze the pill (the default timeout is about 6 s).
@@ -190,7 +190,7 @@ struct HUDToast: Equatable {
 /// Regular glass adapts to what's behind it and can flip between light and dark as it appears;
 /// clear glass has no adaptive behaviour, so we add the dimming layer Apple prescribes for it,
 /// chosen from the system appearance (pinned on the panel). The pill never changes mid-dictation.
-private struct PillSurface<S: InsettableShape>: ViewModifier {
+struct PillSurface<S: InsettableShape>: ViewModifier {
     let shape: S
     var tint: Color?
     @Environment(\.colorScheme) private var scheme
@@ -218,7 +218,7 @@ private struct PillSurface<S: InsettableShape>: ViewModifier {
     }
 }
 
-private extension Shape where Self: InsettableShape {
+extension Shape where Self: InsettableShape {
     func surface(tint: Color? = nil) -> PillSurface<Self> { PillSurface(shape: self, tint: tint) }
 }
 
@@ -248,10 +248,11 @@ struct HUDView: View {
 
     private var alignment: Alignment { settings.hudPosition == .bottom ? .bottom : .top }
     private var idle: Bool { controller.phase == .idle && !controller.hudVisible }
-    /// Hands-free ✕/✓ show on hover; briefly on their own when hands-free starts, so you know they're there.
+    /// ✕, bag and ✓ show on hover (while holding the key too); briefly on their own when hands-free
+    /// starts, so you know they're there.
     @State private var revealButtons = false
     private var handsFreeListening: Bool { controller.handsFree && controller.phase == .listening }
-    private var showButtons: Bool { handsFreeListening && (hover.isOver || revealButtons) }
+    private var showButtons: Bool { controller.phase == .listening && (hover.isOver || (handsFreeListening && revealButtons)) }
 
     var body: some View {
         ZStack(alignment: alignment) {
@@ -325,7 +326,10 @@ struct HUDView: View {
                     .padding(.leading, 12)
                     .transition(.opacity.combined(with: .move(edge: .leading)))
             }
-            pillButton("checkmark", help: "Finish and insert", edge: .leading) { controller.toggleFromMenu() }
+            if !controller.editing {
+                pillButton("tray.and.arrow.down", help: "Put in the bag, to paste later", edge: .leading, tint: Brand.violet) { controller.finishIntoBag() }
+            }
+            pillButton("checkmark", help: "Finish and insert", edge: .leading, gap: controller.editing ? 12 : 6) { controller.toggleFromMenu() }
         }
         .padding(.leading, showButtons ? 8 : 16)
         .padding(.trailing, showButtons ? 8 : (hasText ? 20 : 16))
@@ -349,10 +353,12 @@ struct HUDView: View {
     /// Always in the layout, so showing it is a pure size animation: its slot opens from zero width
     /// while the icon scales up inside it, and the pill, text and icons all move on the same spring.
     /// (Inserting the button instead places it at its final spot at once, outside the growing pill.)
-    private func pillButton(_ symbol: String, help: String, edge: Edge.Set, action: @escaping () -> Void) -> some View {
+    private func pillButton(_ symbol: String, help: String, edge: Edge.Set, gap: CGFloat = 12, tint: Color? = nil,
+                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
                 .frame(width: 30, height: 30)
                 .background(Circle().fill(.primary.opacity(0.08)))
                 .contentShape(.circle)
@@ -361,7 +367,7 @@ struct HUDView: View {
         .scaleEffect(showButtons ? 1 : 0.3)
         .opacity(showButtons ? 1 : 0)
         .frame(width: showButtons ? 30 : 0)
-        .padding(edge, showButtons ? 12 : 0)
+        .padding(edge, showButtons ? gap : 0)
         .allowsHitTesting(showButtons)
         .help(help)
     }
@@ -383,7 +389,8 @@ struct HUDView: View {
             BouncingDots()
                 .transition(.scale.combined(with: .opacity))
         case .idle:
-            Image(systemName: controller.lastError != nil ? "exclamationmark" : controller.cancelled ? "xmark" : "checkmark")
+            Image(systemName: controller.lastError != nil ? "exclamationmark" : controller.cancelled ? "xmark"
+                  : controller.lastWentToBag ? "tray.full.fill" : "checkmark")
                 .font(.system(size: 16, weight: .heavy))
                 .foregroundStyle(controller.lastError != nil ? AnyShapeStyle(Color.red)
                                  : controller.cancelled ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(Brand.gradient))

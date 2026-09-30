@@ -49,6 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await DictationController.shared.runTapTest()
                 NSApp.terminate(nil)
             }
+        } else if let index = CommandLine.arguments.firstIndex(of: "--bag-demo"), index + 1 < CommandLine.arguments.count {
+            let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60) { exit(3) }
+            Task { await BagPanel.shared.runDemo(to: directory) }
         } else if CommandLine.arguments.contains("--demo") {
             Task { await DictationController.shared.runDemo() }
         } else if ["--snapshot", "--mic-test", "--perf-test"].contains(where: CommandLine.arguments.contains) {
@@ -58,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             DictationController.shared.launch()
             StatusMenu.shared.install()
+            BagPanel.shared.start()
             _ = Updater.shared
         }
         if let index = CommandLine.arguments.firstIndex(of: "--perf-test"), index + 1 < CommandLine.arguments.count {
