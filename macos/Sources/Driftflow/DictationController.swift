@@ -476,27 +476,14 @@ final class DictationController: ObservableObject {
         }
     }
 
-    /// Apps that don't say whether a text box is selected (Chrome, Electron apps like Slack or VS
-    /// Code) are pasted into regardless. If nothing takes the paste within a second, there was no
+    /// Apps that don't say whether a text box is selected (Electron apps like Slack, VS Code or
+    /// Claude) are pasted into regardless. If nothing takes the paste within a second, there was no
     /// text box: the dictation goes into the stack instead of being lost, and comes back out if the
-    /// app takes it late after all.
+    /// app takes it late after all. (Chrome-based browsers can't be told this way: they read a
+    /// paste whether or not a text box on the page is selected.)
     private func catchUntakenPaste(_ text: String) {
-        let browser = browserToRecheck
-        browserToRecheck = nil
         Task {
-            var nothingTookIt = await inserter.waitUntilPasteTaken(timeout: .seconds(1)) == false
-            // Browsers read a paste even when no text box is selected, so for one that couldn't say
-            // what was selected, ask again now that it's been looked at.
-            if !nothingTookIt, let browser {
-                let pid = browser
-                let result = await Task.detached(priority: .userInitiated) { () -> TextBoxCheck.Result in
-                    TextBoxCheck.wake(pid: pid)
-                    return await TextBoxCheck.checkWhenAwake(pid: pid, timeout: 1.5)
-                }.value
-                AppLog.info("The browser, asked again: \(result)")
-                nothingTookIt = result == .noTextBox
-            }
-            guard nothingTookIt else { return }
+            guard await inserter.waitUntilPasteTaken(timeout: .seconds(1)) == false else { return }
             let id = DictationStack.shared.add(text)
             AppLog.info("Nothing took the paste: put it in the stack")
             let notice = HUDToast(icon: "rectangle.stack", text: settings.stackTab == .hidden
@@ -529,25 +516,9 @@ final class DictationController: ObservableObject {
               let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
         let pid = app.processIdentifier
-        let (result, detail, menu) = await Task.detached(priority: .userInitiated) { () -> (TextBoxCheck.Result, String, String?) in
-            let (result, detail) = TextBoxCheck.inspect(pid: pid)
-            return (result, detail, result == .unknown ? TextBoxCheck.editMenuState(pid: pid) : nil)
-        }.value
-        AppLog.info("Pasting into \(app.localizedName ?? "an app"): \(result) (\(detail))" + (menu.map { " · Edit menu: \($0)" } ?? ""))
-        // A browser that hasn't described its page yet (you switched to it while talking): the
-        // paste goes ahead, and is checked again once it can say (see `catchUntakenPaste`).
-        browserToRecheck = result == .unknown && TextBoxCheck.isChromiumBrowser(app) ? pid : nil
+        let (result, detail) = await Task.detached(priority: .userInitiated) { TextBoxCheck.inspect(pid: pid) }.value
+        AppLog.info("Pasting into \(app.localizedName ?? "an app"): \(result) (\(detail))")
         return result == .noTextBox
-    }
-
-    /// Set by `nothingToPasteInto` for `catchUntakenPaste`.
-    private var browserToRecheck: pid_t?
-
-    /// Dictating in a Chrome-based browser: have it describe the page by the time you finish.
-    private func wakeBrowser() {
-        guard accessibilityGranted, let app = NSWorkspace.shared.frontmostApplication, TextBoxCheck.isChromiumBrowser(app) else { return }
-        let pid = app.processIdentifier
-        Task.detached(priority: .utility) { TextBoxCheck.wake(pid: pid) }
     }
 
     /// Keeps a failed dictation's audio so it can be retried from History (if allowed).
@@ -758,7 +729,6 @@ final class DictationController: ObservableObject {
         AppLog.info("Dictation started (\(handsFree ? "hands-free" : "hold") · microphone \(microphoneName) · in \(targetAppName ?? "unknown app"))")
         corrections.stop()
         let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        wakeBrowser()
         let readHost = accessibilityGranted && bundleID.map(DictationTarget.browsers.contains) == true
             && settings.appRules.contains(where: \.isWebsite)
         targetTask = Task { DictationTarget(bundleID: bundleID, host: readHost ? await DictationTarget.currentHost() : nil) }
