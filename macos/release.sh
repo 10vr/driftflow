@@ -157,4 +157,4 @@ git commit -q -m "Mac $VERSION: add to the update feed"
 git pull -q --rebase origin main
 git push -q origin HEAD:main
 echo "Published the Mac download: https://github.com/$REPO/releases/tag/$TAG"
-echo "Macs running Driftflow pick it up within a day (or at once via Check for Updates…); Windows follows when its build finishes."
+echo "Macs running 0.2.16 or later see it within about 15 minutes (or at once via Check for Updates…); Windows follows when its build finishes."
