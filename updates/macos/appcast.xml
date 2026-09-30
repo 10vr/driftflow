@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.20</title>
+            <pubDate>Wed, 30 Sep 2026 10:00:24 GMT</pubDate>
+            <sparkle:version>202609301800</sparkle:version>
+            <sparkle:shortVersionString>0.2.20</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Hold ⌃ Control with your dictation key (Right ⌘ + ⌃) and that dictation goes into your stack instead of being pasted. Pick a different key, or turn it off, in Settings › Shortcuts.</p><p>Stacks can be renamed and given an icon on the Stacks page. The floating stack shows the icon of the one you&#x27;re using.</p><p>The stack&#x27;s tab shows pinned lines separately, with a pin and how many there are.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.20/Driftflow-0.2.20-macOS.zip" type="application/octet-stream" sparkle:edSignature="8Av9J43D5tKtPdBDES/NsKonFUrmtU1z/9Gf1kPemPZewz8oUDJzW2XxVbMCCKlqdeLxwhXDTHEhyS7B5fa5BA==" length="13833390"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.19</title>
             <pubDate>Wed, 30 Sep 2026 09:28:44 GMT</pubDate>
             <sparkle:version>202609301728</sparkle:version>
