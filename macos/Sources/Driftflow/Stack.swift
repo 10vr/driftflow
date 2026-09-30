@@ -751,11 +751,11 @@ struct StackView: View {
                 }
                 Spacer()
                 if !stack.queue.isEmpty {
-                    iconButton("square.and.arrow.down", help: "Save this stack for later and start a new one (Saved Stacks in the main window)") {
+                    circleButton("square.and.arrow.down", help: "Save this stack for later and start a new one (Saved Stacks in the main window)") {
                         StackPanel.shared.saveCurrentStack()
                     }
                 }
-                iconButton("xmark", help: "Close (Esc)") { StackPanel.shared.close() }
+                circleButton("xmark", help: "Close (Esc)") { StackPanel.shared.close() }
             }
             .padding(.leading, 10)
             .padding(.trailing, 2)
@@ -894,25 +894,56 @@ struct StackView: View {
     }
 
     /// Paste at your cursor; ▾ chooses what's included (remembered, also in Settings › Stack).
+    /// One capsule, the same height as Clear: paste on the left, the ▾ choice on the right.
     private var pasteButton: some View {
-        Menu {
-            Picker("Paste Puts In", selection: $settings.stackPaste) {
-                ForEach(StackPasteChoice.allCases) { Text($0.label).tag($0) }
+        HStack(spacing: 0) {
+            Button {
+                DictationController.shared.pasteAllFromStack()
+            } label: {
+                Image(systemName: "list.clipboard")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .frame(width: 34, height: footerHeight)
+                    .contentShape(.rect)
             }
-            .pickerStyle(.inline)
-        } label: {
-            Image(systemName: "doc.on.clipboard")
-                .font(.system(size: 12, weight: .semibold))
-        } primaryAction: {
-            DictationController.shared.pasteAllFromStack()
+            .buttonStyle(.plain)
+            .help("Paste \(settings.stackPaste.label.lowercased()) at your cursor, in order. Or drag the tab into a text box.")
+            Rectangle()
+                .fill(.primary.opacity(0.15))
+                .frame(width: 1, height: 14)
+            Menu {
+                Picker("Paste Puts In", selection: $settings.stackPaste) {
+                    ForEach(StackPasteChoice.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .frame(width: 24, height: footerHeight)
+                    .contentShape(.rect)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Choose what Paste puts in")
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.visible)
-        .fixedSize()
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
         .background(Capsule().fill(.primary.opacity(0.1)))
-        .help("Paste \(settings.stackPaste.label.lowercased()) at your cursor, in order. ▾ to choose. Or drag the tab into a text box.")
+    }
+
+    private let footerHeight: CGFloat = 26
+
+    /// ✕ and Save at the top: small round buttons, like the pill's.
+    private func circleButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 9.5, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(.primary.opacity(0.08)))
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
@@ -931,8 +962,8 @@ struct StackView: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 12)
+                .frame(height: footerHeight)
                 .background(Capsule().fill(.primary.opacity(0.1)))
                 .contentShape(.capsule)
         }
