@@ -50,9 +50,11 @@ Mac-only for now:
 
 ## The Stack
 
-<img src="docs/images/stack.png" alt="The floating stack at the bottom right of the screen, with a pinned line and three dictations" width="410" align="right">
-
 Sometimes you want to say something before you know where it goes, or you've clicked away and there's nowhere to type. The Stack (Mac) holds those dictations for you.
+
+<p align="center">
+  <img src="docs/images/stack.png" alt="The floating stack at the bottom right of the screen, with a pinned line and three dictations" width="410">
+</p>
 
 - **Send a dictation to the stack.** Hold **Right ⌘ + ⌃** while you speak (you can pick another key in Settings › Shortcuts), or click the stack button on the pill.
 - **Never lose one.** If there's no text box where you're dictating, the text goes into the stack instead of disappearing.
@@ -61,8 +63,6 @@ Sometimes you want to say something before you know where it goes, or you've cli
 - **Pin what you reuse.** Pinned lines stay after you paste them, at the top of every stack (up to 5).
 - **Keep several stacks.** Name them, give each an icon, and switch between them. On the Stacks page, drag lines from one stack to another.
 - **Your limits.** A stack holds 20 lines by default (up to 200 in Settings). Stacks are kept as long as your History is, counted from their last change; pinned lines are kept until you remove them.
-
-<br clear="right">
 
 ## Download
 
