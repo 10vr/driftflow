@@ -97,12 +97,16 @@ final class DictationStack: ObservableObject {
     @Published private(set) var items: [StackItem] = [] { didSet { save() } }
     /// Put away with Hide: kept, just not on screen (Open Stack brings it back).
     @Published private(set) var hidden: Bool { didSet { UserDefaults.standard.set(hidden, forKey: "stackHidden") } }
+    /// Once you've used the stack, its tab stays on screen (it's also the Stack Mode switch); before
+    /// that it only appears when something goes in.
+    @Published private(set) var used: Bool { didSet { UserDefaults.standard.set(used, forKey: "stackUsed") } }
     /// Counts additions, so the tab can bounce when something goes in.
     @Published private(set) var addedCount = 0
     private let fileURL = AppData.directory.appendingPathComponent("stack.json")
 
     private init() {
         hidden = UserDefaults.standard.bool(forKey: "stackHidden")
+        used = UserDefaults.standard.bool(forKey: "stackUsed")
         guard AppSettings.shared.historyRetention != .off, let data = try? Data(contentsOf: fileURL) else { return }
         items = (try? JSONDecoder().decode([StackItem].self, from: data)) ?? []
     }
@@ -114,6 +118,7 @@ final class DictationStack: ObservableObject {
         items.append(StackItem(text: text, added: Date()))
         if items.count > Self.capacity { items.removeFirst(items.count - Self.capacity) }
         hidden = false // something new went in: show where it went
+        used = true
         addedCount += 1
         StackPanel.shared.itemAdded()
     }
@@ -136,7 +141,10 @@ final class DictationStack: ObservableObject {
         AppSettings.shared.stackMode = false
     }
 
-    func show() { hidden = false }
+    func show() {
+        hidden = false
+        used = true
+    }
 
     /// An empty stack opened from the menu: your last dictations, to paste again.
     func refillFromHistory() {
@@ -176,7 +184,7 @@ final class StackPanelState: ObservableObject {
     @Published var hovered: UUID?
     /// Full strength for a moment after something goes in, even when the tab is faded.
     @Published var peeking = false
-    /// Kept open (a click on the tab, or Open Stack in the menu) until you click elsewhere.
+    /// Kept open (Open Stack in the menu) until you click elsewhere.
     @Published var pinned = false
     /// Frames in the panel, reported by SwiftUI: each line (for hover) and the tab.
     var rowFrames: [UUID: CGRect] = [:]
@@ -214,6 +222,7 @@ final class StackPanel {
         let stack = DictationStack.shared, settings = AppSettings.shared
         stack.$items.map(\.isEmpty).removeDuplicates().map { _ in () }
             .merge(with: stack.$hidden.removeDuplicates().map { _ in () },
+                   stack.$used.removeDuplicates().map { _ in () },
                    settings.$stackMode.removeDuplicates().map { _ in () },
                    settings.$stackTab.removeDuplicates().map { _ in () })
             .sink { [weak self] in DispatchQueue.main.async { self?.refresh() } }
@@ -245,12 +254,6 @@ final class StackPanel {
         place(on: nil)
     }
 
-    /// A click on the tab keeps the list open (or lets it close again).
-    func toggleTabPin() {
-        state.pinned.toggle()
-        if state.pinned { state.expanded = true }
-    }
-
     func hide() {
         state.pinned = false
         DictationStack.shared.hide()
@@ -258,7 +261,7 @@ final class StackPanel {
 
     private var wanted: Bool {
         let stack = DictationStack.shared, settings = AppSettings.shared
-        guard !stack.hidden, !stack.items.isEmpty || settings.stackMode else { return false }
+        guard !stack.hidden, stack.used || !stack.items.isEmpty || settings.stackMode else { return false }
         return settings.stackTab != .hidden || state.pinned
     }
 
@@ -500,13 +503,13 @@ struct StackView: View {
         .font(.system(size: 13))
         .padding(.horizontal, 13)
         .frame(height: 30)
-        .modifier(Capsule().surface(tint: state.pinned ? Brand.violet.opacity(0.18) : nil))
+        .modifier(Capsule().surface(tint: settings.stackMode ? Brand.violet.opacity(0.22) : nil))
         .shadow(color: .black.opacity(faded ? 0 : 0.16), radius: 10, y: 4)
         .opacity(faded ? 0.4 : 1)
-        // Click: keep it open. Drag: drop everything, in order.
+        // Click: Stack Mode on or off. Drag: drop everything, in order.
         .overlay {
             StackDragSource(text: stack.joined, preview: stack.items.count == 1 ? stack.items[0].text : "\(stack.items.count) dictations",
-                            onClick: { StackPanel.shared.toggleTabPin() },
+                            onClick: { DictationController.shared.toggleStackMode() },
                             onDropped: { [ids = stack.items.map(\.id)] in DictationStack.shared.remove(ids) })
         }
         .background(frame(StackTabRectKey.self))

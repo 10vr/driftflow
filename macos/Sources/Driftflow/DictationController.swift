@@ -471,6 +471,10 @@ final class DictationController: ObservableObject {
     func toggleStackMode() {
         settings.stackMode.toggle()
         if settings.stackMode { DictationStack.shared.show() }
+        // Say it plainly: with the mode on by mistake, nothing would paste.
+        showToast(HUDToast(icon: "rectangle.stack", text: settings.stackMode
+            ? "Stack Mode on: your dictations go into the stack."
+            : "Stack Mode off: your dictations paste again."), for: 2.5)
     }
 
     /// True only when the app you're in clearly has no text box selected (see `TextBoxCheck`).
