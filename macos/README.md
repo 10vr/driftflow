@@ -61,6 +61,7 @@ The first launch opens a setup window for Microphone and Accessibility access, t
 - **Hold Right ⌘, speak, release:** the text is inserted (push-to-talk).
 - **Tap Right ⌘** (under 0.3 s): hands-free mode; tap again to finish. **Esc** cancels.
 - **Right ⌘ + C, V, a click, etc.:** recognized as a shortcut and cancelled silently. The sound and overlay wait 150 ms, so shortcuts never flash them.
+- **Right ⌘ + ⌃ (held before or while you speak):** that dictation goes into the stack instead of being pasted (see [The Stack](#the-stack)). The key is set in Settings › Shortcuts: ⌃, ⌥, ⇧, ⌘ (not with Right ⌘) or off; either side's key counts, only while the dictation key is held.
 - **Models** (Settings › Models): choose the final-text model (Parakeet Unified, TDT v2, TDT v3 or Apple Speech). Each card shows measured errors and speed, plus Download, Use and Delete. The live preview comes from the same model by default (Settings › Models › Advanced can switch it to Apple Speech, lighter on battery).
 - **Menu bar:** recent dictations (click to copy) and the latency of the last dictation.
 - **Settings:**
@@ -78,6 +79,7 @@ The first launch opens a setup window for Microphone and Accessibility access, t
   - smart spacing
   - paste or typed insertion
   - searchable history
+  - the stack: how its tab shows (faded, visible, hidden), what Paste puts in (the stack, pins then stack, or pins only), lines per stack (20 by default, 5–200), New Stack and All Stacks
 
 ## Styles, app rules, snippets and voice editing
 
@@ -89,6 +91,17 @@ The first launch opens a setup window for Microphone and Accessibility access, t
 - **Snippets** (Settings › Vocabulary): say a phrase on its own ("my signature") to insert saved text exactly, line breaks included. Placeholders: `{date}`, `{time}`, `{day}`, `{clipboard}`.
 - **Edit selection by voice (⌃⌥E):** select text, press the shortcut, say what to change ("make this shorter", "bullet points", "fix the grammar", "translate into Spanish"), then press it again. The selection is replaced.
 - **Learn from corrections:** if you fix a misheard name in the text you just dictated ("cooper netties" → Kubernetes), a toast offers to add it to Vocabulary. Driftflow reads only that one field, through Accessibility, for 90 seconds. Ordinary word fixes ("their" → "there") and rewording are ignored.
+
+## The Stack
+
+Dictations that aren't pasted right away wait in a floating stack at the bottom right of the screen.
+
+- **What goes in:** the pill's stack button, the stack key (Right ⌘ + ⌃), every dictation in Stack Mode (click the tab, or the menu bar), and any dictation with nowhere to go. Before pasting, `TextBoxCheck` asks the frontmost app (through Accessibility, in about 0.3 ms) what's focused; with clearly no text box, the text goes to the stack. Electron apps don't say, so they're pasted into, and if nothing reads the paste within a second (a real paste is read in 7–31 ms), the text goes to the stack then. Chrome-based browsers read every paste, so a page with no text box selected can't be detected there.
+- **Using it:** point at the tab to open the list. Click a line to paste it at the cursor, drag it into any app, drag it within the list to reorder, or drag the tab to drop the whole stack. Paste (▾ to choose: the stack, pins then stack, or pins only) pastes everything in order. ✕ or Esc closes the list; right-click the tab to hide it.
+- **Pins:** up to 5, shared by every stack, shown first and kept after pasting.
+- **Several stacks:** New Stack (＋) starts a fresh one; the one before stays on the Stacks page in the main window, where stacks are renamed, given an icon, switched between, copied or deleted, and lines are reordered or dragged onto another stack (or onto Pinned), or moved with Move To.
+- **Limits and storage:** 20 lines per stack by default (Settings › General › Stack, 5–200); past it, the oldest line goes out with a message (it's still in History). Stored in `~/Library/Application Support/Driftflow/stacks.json`, and removed after the History period counted from each stack's last change; pins never expire. With History off, stacks are kept in memory only.
+- **Cost:** while closed, the tab's window shrinks to the tab and macOS reports when the pointer arrives, so it uses 0.0% CPU; it follows the pointer only while you're pointing at it or it's open. An empty tab fades after 5 seconds.
 
 ## Transcribing audio and video files
 
@@ -166,7 +179,7 @@ Store the exports somewhere safe (a password manager), never in the repo.
 - Other audio is lowered to 30% while you dictate; the original volume is saved first and restored on the next
   launch after a crash.
 - Microphone picker with fallback to the system default, and away from the built-in mic when the lid is closed.
-- Shortcuts pane: dictation key, optional hands-free toggle, Paste Last Dictation (⌃⌥V), with conflict checks.
+- Shortcuts pane: dictation key, optional hands-free toggle, Paste Last Dictation (⌃⌥V), Edit Selection by Voice (⌃⌥E), the stack key (⌃), with conflict checks.
 - Typed line breaks in chat apps (Slack, Messages, Discord, WhatsApp, Telegram, Teams…) are Shift+Return.
 - Vocabulary: Parakeet CTC word spotting (98 MB helper model) guarded by a spelling-similarity check, plus exact
   spelling of your terms; replacements table and a Try-it box.
@@ -192,14 +205,17 @@ HotKeyMonitor (left/right-aware modifiers or a Carbon hot key)
 - `Driftflow --rescue-roundtrip <file>`: failed-dictation audio save → load → transcribe → delete.
 - `open -a Driftflow --args --mic-test <file>`: records 0.5 s from every microphone through the real capture path.
 - `open -n -g -a Driftflow --args --scratch-test <file> <pid>`: types into a throwaway text app (keystrokes sent to that process only), then checks "scratch that" removes it and refuses when the text was edited.
-- `open -n -a Driftflow --args --hud-demo <dir>`: captures the pill over black and white backdrops, appearing and with the ✕/✓ buttons (`DRIFTFLOW_GLASS=regular` shows the old adaptive glass).
+- `open -n -a Driftflow --args --hud-demo <dir>`: captures the pill over black and white backdrops, appearing and with the ✕/✓ buttons (`DRIFTFLOW_GLASS=regular` shows the old adaptive glass, `DRIFTFLOW_DEMO_IDLE=<s>` only the idle pill, `DRIFTFLOW_DEMO_TOAST=1` the "stack full" messages).
 - `Driftflow --login-status`: whether macOS will open Driftflow at login.
 - `Driftflow --mic-priority-test`: which microphone the priority list picks, with this Mac's real devices.
 - `DRIFTFLOW_LOG_PATH=<scratch file> Driftflow --log-test`: checks how the last session ended, writes two lines through the support log and prints what Copy Log would copy: the log of past sessions plus summaries of Driftflow's crash reports from the last 14 days (never touches the real log in `~/Library/Logs/Driftflow`).
-- `Driftflow --smart-test`: snippets, app/website rules, plain text, correction learning and the AI Style answer check (33 cases).
+- `Driftflow --smart-test`: snippets, app/website rules, plain text, correction learning and the AI Style answer check (46 cases).
 - `Driftflow --style-test TestData/styles.txt [clean|professional|casual]`: 37 dictations (questions, requests, prompt injections, self-corrections) through the real AI Style rewrite, with timings.
 - `Driftflow --edit-test`: voice editing's rewrite on typical instructions.
-- `Driftflow --logic-test`: every key decision (hold, tap, hands-free, Esc, shortcuts typed while finishing).
+- `Driftflow --logic-test`: every key decision (hold, tap, hands-free, Esc, shortcuts typed while finishing) and the stack key with each dictation key.
+- `DRIFTFLOW_DATA_DIR=<empty folder> Driftflow --stack-test`: the stack's rules on a scratch copy (retention, the line limit, pins, reordering, New Stack, moving lines between stacks).
+- `open -n -W --env DRIFTFLOW_DATA_DIR=<folder> build.noindex/Driftflow.app --args --stack-demo <dir>`: captures the stack's tab and list over black and white, and the Stacks page. `DRIFTFLOW_DEMO_MANY=1` fills a long stack, `DRIFTFLOW_DEMO_IDLE=<s>` leaves only the tab on screen (to measure its cost with `top`), `DRIFTFLOW_DEMO_FADE=1` shows the empty tab fading, and `DRIFTFLOW_DEMO_PANE=<pane>` (with `DRIFTFLOW_DEMO_SCROLL=<0…1>`) captures a page of the main window instead.
+- `open -n -W --stdout <file> build.noindex/Driftflow.app --args --focus-probe`: read-only; for every open app, what's focused and whether a dictation would be pasted or go to the stack, with timings (run through `open` so it has Accessibility access).
 - `Driftflow --load-test`: model switching, including the vocabulary sequence that used to deadlock and rapid switches (the last request wins).
 - `DRIFTFLOW_ASSET_READER=1 Driftflow --file <file>`: forces the video decoder (e.g. to test 5.1 surround audio).
 

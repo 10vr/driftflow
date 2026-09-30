@@ -18,6 +18,7 @@
 <p align="center">
   <a href="#download">Download</a> ·
   <a href="#features">Features</a> ·
+  <a href="#the-stack">The Stack</a> ·
   <a href="#privacy">Privacy</a> ·
   <a href="#building-from-source">Build from source</a>
 </p>
@@ -41,10 +42,27 @@
 
 Mac-only for now:
 
+- **The Stack.** Dictate now, paste later. Dictations wait in a small stack at the corner of your screen until you click or drag them where they belong, and nothing is lost when there's no text box to type into. [More below](#the-stack).
 - **AI Styles.** Apple's on-device model can tidy your dictation into Clean, Professional or Casual writing, with per-app and per-website rules (macOS 26 with Apple Intelligence).
 - **Edit by voice.** Select text, press ⌃⌥E and say what to change: "make this shorter", "turn this into bullet points" (macOS 26 with Apple Intelligence).
 - **Voice commands and snippets.** "New line", "new paragraph", "scratch that", and saved text you insert by saying a phrase.
 - **Transcribe files.** Drop in audio or video and export text, timestamps, SRT or VTT subtitles.
+
+## The Stack
+
+<img src="docs/images/stack.png" alt="The floating stack at the bottom right of the screen, with a pinned line and three dictations" width="410" align="right">
+
+Sometimes you want to say something before you know where it goes, or you've clicked away and there's nowhere to type. The Stack (Mac) holds those dictations for you.
+
+- **Send a dictation to the stack.** Hold **Right ⌘ + ⌃** while you speak (you can pick another key in Settings › Shortcuts), or click the stack button on the pill.
+- **Never lose one.** If there's no text box where you're dictating, the text goes into the stack instead of disappearing.
+- **Stack Mode.** Click the stack's tab to collect every dictation in a row, then paste them together.
+- **Use them anywhere.** Point at the tab to open it. Click a line to paste it where your cursor is, drag it into any app, or drag the tab to drop the whole stack at once.
+- **Pin what you reuse.** Pinned lines stay after you paste them, at the top of every stack (up to 5).
+- **Keep several stacks.** Name them, give each an icon, and switch between them. On the Stacks page, drag lines from one stack to another.
+- **Your limits.** A stack holds 20 lines by default (up to 200 in Settings). Stacks are kept as long as your History is, counted from their last change; pinned lines are kept until you remove them.
+
+<br clear="right">
 
 ## Download
 
@@ -68,6 +86,7 @@ On first launch, a short setup asks for microphone access (and, on Mac, Accessib
 | Dictate | Hold **Right ⌘**, speak, release | Hold **Right Alt**, speak, release |
 | Hands-free | Tap **Right ⌘** once, tap again to finish | Tap **Right Alt** once, tap again to finish |
 | Cancel | **Esc** | **Esc** |
+| Into the stack | Hold **Right ⌘ + ⌃**, speak, release | |
 | Settings | Menu bar icon › Settings… | System tray icon › Settings… |
 
 You can choose a different key in Settings › Shortcuts. On keyboards where Right Alt types accented letters (AltGr), choose Right Ctrl.
@@ -77,7 +96,7 @@ You can choose a different key in Settings › Shortcuts. On keyboards where Rig
 - Your voice is transcribed on your computer and is never uploaded.
 - Driftflow connects to the internet for only two things: downloading speech models (from Hugging Face, with a mirror as a fallback on Windows) and checking for updates (from this GitHub repository).
 - Audio isn't stored. The one exception is a dictation that fails: its recording is kept for a day so you can retry it from History, then deleted.
-- History stays on your computer, and you can shorten how long it's kept or turn it off.
+- History and your stacks stay on your computer, and you can shorten how long they're kept or turn it off.
 - There are no accounts, analytics or ads.
 
 ## Performance
