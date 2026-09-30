@@ -45,8 +45,55 @@ enum TextBoxCheck {
         if textRoles.contains(role) || textRoles.contains(subrole) || editable || (settable.boolValue && hasCaret) {
             return (.textBox, detail)
         }
-        // Anything that shows a caret might take text after all.
+        // The page itself has the focus (you clicked on it, not into a text box). Pages always
+        // report a text range (for selecting text), so that doesn't count as a caret here.
+        if role == "AXWebArea", !settable.boolValue { return (.noTextBox, detail) }
+        // Anything else that shows a caret might take text after all.
         return (nonTextRoles.contains(role) && !hasCaret && !settable.boolValue ? .noTextBox : .unknown, detail)
+    }
+
+    /// Chrome-based browsers describe what's selected in a page only once an accessibility client
+    /// has looked at the page (see `wake`). Electron apps (Slack, VS Code, Claude) are left alone:
+    /// their switch for this also tells them a screen reader is running, which changes how they
+    /// behave (VS Code switches its editor to screen-reader mode).
+    static func isChromiumBrowser(_ app: NSRunningApplication?) -> Bool {
+        app?.bundleIdentifier.map(chromiumBrowsers.contains) ?? false
+    }
+
+    private static let chromiumBrowsers: Set<String> = [
+        "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.canary", "org.chromium.Chromium",
+        "com.brave.Browser", "com.microsoft.edgemac", "company.thebrowser.Browser", "com.vivaldi.Vivaldi",
+        "com.operasoftware.Opera", "ai.perplexity.comet", "com.openai.atlas",
+    ]
+
+    /// Looks into the browser's front window, a few levels down into the page. Chrome notices an
+    /// accessibility client and starts describing the page (it stops again by itself when no one
+    /// has asked for a while); after that, what's selected in the page can be read.
+    static func wake(pid: pid_t) {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.2)
+        var window: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window) == .success,
+              let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return }
+        func visit(_ element: AXUIElement, depth: Int) {
+            guard depth > 0 else { return }
+            AXUIElementSetMessagingTimeout(element, 0.2)
+            var children: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
+                  let children = children as? [AXUIElement] else { return }
+            children.prefix(12).forEach { visit($0, depth: depth - 1) }
+        }
+        visit(window as! AXUIElement, depth: 6)
+    }
+
+    /// After `wake`: waits (up to `timeout`) for the browser to say what's selected.
+    static func checkWhenAwake(pid: pid_t, timeout: TimeInterval) async -> Result {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            let result = check(pid: pid)
+            if result != .unknown || Date() > deadline { return result }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     private static func string(_ element: AXUIElement, _ attribute: String) -> String? {

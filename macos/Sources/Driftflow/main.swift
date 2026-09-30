@@ -372,6 +372,13 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
     // What each open app has selected, and whether a dictation would be pasted there or put in the
     // stack. Read-only: nothing is focused, typed or copied.
     print("Accessibility:", AXIsProcessTrusted() ? "on" : "off")
+    // DRIFTFLOW_PROBE_WAKE=1: first look into Chrome-based browsers' pages, as the paste check does.
+    if ProcessInfo.processInfo.environment["DRIFTFLOW_PROBE_WAKE"] != nil {
+        for app in NSWorkspace.shared.runningApplications where TextBoxCheck.isChromiumBrowser(app) {
+            TextBoxCheck.wake(pid: app.processIdentifier)
+        }
+        Thread.sleep(forTimeInterval: 1)
+    }
     for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
         let (result, detail) = TextBoxCheck.inspect(pid: app.processIdentifier)
         let front = app.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier ? " [in front]" : ""
