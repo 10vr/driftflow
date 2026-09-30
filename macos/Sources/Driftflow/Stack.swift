@@ -579,7 +579,8 @@ struct StackView: View {
     private var faded: Bool { settings.stackTab == .faded && !state.expanded && !state.peeking && !settings.stackMode }
 
     private var tab: some View {
-        let count = stack.queue.count
+        let count = stack.items.count // pinned lines count too: they're in the stack
+        let dropping = stack.queue.count
         return HStack(spacing: 6) {
             Image(systemName: "rectangle.stack.fill")
                 .foregroundStyle(Brand.violet)
@@ -602,7 +603,7 @@ struct StackView: View {
         .opacity(faded ? 0.4 : 1)
         // Click: Stack Mode on or off. Drag: drop the whole stack, in order. Right-click: Hide Stack.
         .overlay {
-            StackDragSource(text: stack.joined, preview: count == 1 ? stack.joined : "\(count) dictations",
+            StackDragSource(text: stack.joined, preview: dropping == 1 ? stack.joined : "\(dropping) dictations",
                             onClick: { DictationController.shared.toggleStackMode() },
                             onDropped: { [ids = stack.queue.map(\.id)] in DictationStack.shared.used(ids) },
                             menu: { StackPanel.shared.tabMenu() })
@@ -615,8 +616,8 @@ struct StackView: View {
             HStack(spacing: 6) {
                 Text(settings.stackMode ? "Stacking" : "Stack")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                if !stack.queue.isEmpty {
-                    Text("\(stack.queue.count)")
+                if !stack.items.isEmpty {
+                    Text("\(stack.items.count)")
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                 }

@@ -34,7 +34,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     /// even with the tab hidden).
     private func showStackCount() {
         guard let item, let button = item.button else { return }
-        let count = settings.stackMode ? DictationStack.shared.queue.count : 0
+        let count = settings.stackMode ? DictationStack.shared.items.count : 0
         item.length = count > 0 ? NSStatusItem.variableLength : NSStatusItem.squareLength
         button.imagePosition = count > 0 ? .imageLeading : .imageOnly
         button.attributedTitle = NSAttributedString(string: count > 0 ? "\(count)" : "", attributes: [
