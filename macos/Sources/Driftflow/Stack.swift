@@ -806,6 +806,20 @@ final class StackPanel {
             NSApp.terminate(nil)
             return
         }
+        // DRIFTFLOW_DEMO_SHORTCUTS=1: Settings › Shortcuts (the stack key), from the screen.
+        if ProcessInfo.processInfo.environment["DRIFTFLOW_DEMO_SHORTCUTS"] != nil {
+            DictationController.shared.openSettings(.shortcuts)
+            try? await Task.sleep(for: .seconds(1.5))
+            if let window = NSApp.windows.first(where: { $0.isVisible && $0.title == SettingsView.Pane.shortcuts.title }) {
+                window.orderFrontRegardless()
+                try? await Task.sleep(for: .milliseconds(300))
+                let frame = window.frame
+                DictationController.capture(CGRect(x: frame.minX, y: (NSScreen.screens.first?.frame.height ?? 0) - frame.maxY, width: frame.width, height: frame.height),
+                                            to: directory.appendingPathComponent("shortcuts.png"))
+            }
+            NSApp.terminate(nil)
+            return
+        }
         // DRIFTFLOW_DEMO_FADE=1: an emptied stack's tab stays a few seconds, then fades; Stack Mode
         // brings it back.
         if ProcessInfo.processInfo.environment["DRIFTFLOW_DEMO_FADE"] != nil {

@@ -326,7 +326,23 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
         if got != want { failures += 1 }
         print(got == want ? "PASS" : "FAIL", name, got == want ? "" : "(got \(got), want \(want))")
     }
-    print(failures == 0 ? "all \(cases.count) passed" : "\(failures) failed")
+    // The stack key held with the dictation key.
+    let stackKeys: [(String, StackKey, TriggerKey, NSEvent.ModifierFlags?)] = [
+        ("Right ⌘ + ⌃ goes to the stack (the default)", .control, .rightCommand, .control),
+        ("Right ⌘ + ⌥ when ⌥ is chosen", .option, .rightCommand, .option),
+        ("Right ⌘ + ⌘ is no stack key", .command, .rightCommand, nil),
+        ("Right ⌥ + ⌘ when ⌘ is chosen", .command, .rightOption, .command),
+        ("Right ⌥ + ⌥ is no stack key", .option, .rightOption, nil),
+        ("Fn + ⇧ when ⇧ is chosen", .shift, .fn, .shift),
+        ("⌥ Space has no stack key", .control, .optionSpace, nil),
+        ("Off watches nothing", .off, .rightCommand, nil),
+    ]
+    for (name, key, trigger, want) in stackKeys {
+        let got = key.modifier(with: trigger)
+        if got != want { failures += 1 }
+        print(got == want ? "PASS" : "FAIL", name)
+    }
+    print(failures == 0 ? "all \(cases.count + stackKeys.count) passed" : "\(failures) failed")
     exit(failures == 0 ? 0 : 1)
 } else if arguments.contains("--load-test") {
     // Model switching: the vocabulary sequence that used to deadlock, then rapid switches where

@@ -32,7 +32,7 @@ final class DictationController: ObservableObject {
     private var toStack = false
     /// ✓ on the pill in Stack Mode: paste this one after all.
     private var pasteNow = false
-    /// ⌥ Option held with the dictation key (⌘ when the key is Right ⌥): this one goes in the stack.
+    /// The stack key (Settings › Shortcuts) held with the dictation key: this one goes in the stack.
     @Published private(set) var stackRequested = false
     /// Key release → text handed to the target app, for the most recent dictation.
     @Published private(set) var lastLatencyMs: Int?
@@ -667,20 +667,17 @@ final class DictationController: ObservableObject {
         }
     }
 
-    /// The key that, held with your dictation key, sends that dictation to the stack: ⌥ Option, or
-    /// ⌘ Command when the dictation key is Right ⌥ itself. Only for single-key dictation keys.
-    var stackModifier: NSEvent.ModifierFlags? {
-        switch settings.trigger {
-        case .rightOption: .command
-        case .rightCommand, .fn: .option
-        default: nil
-        }
-    }
+    /// The key that, held with your dictation key, sends that dictation to the stack (Settings ›
+    /// Shortcuts, ⌃ Control unless changed). Only for single-key dictation keys, and never the
+    /// dictation key's own modifier.
+    var stackModifier: NSEvent.ModifierFlags? { settings.stackKey.modifier(with: settings.trigger) }
 
     private func modifiersChanged(_ flags: NSEvent.ModifierFlags) {
-        guard phase == .listening, editSelection == nil, !stackRequested,
+        // Only with the dictation key held: not a ⌃ in a hands-free shortcut, or typed while hands-free.
+        guard phase == .listening, editSelection == nil, !stackRequested, hotkeys.isDown,
               let modifier = stackModifier, flags.contains(modifier) else { return }
         stackRequested = true
+        AppLog.info("Stack key held: this dictation goes into the stack")
     }
 
     /// The stack button on the pill: finish now and keep the text in the stack.
@@ -732,7 +729,7 @@ final class DictationController: ObservableObject {
         earlyText = nil
         phase = .listening
         self.handsFree = handsFree
-        modifiersChanged(NSEvent.modifierFlags) // ⌥ already down when the key went down
+        modifiersChanged(NSEvent.modifierFlags) // the stack key already down when the key went down
         finalizedText = ""
         volatileText = ""
         statusMessage = nil

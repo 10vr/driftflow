@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 enum TriggerKey: String, CaseIterable, Identifiable {
     case rightCommand
@@ -36,6 +36,64 @@ enum TriggerKey: String, CaseIterable, Identifiable {
         case .rightOption, .rightCommand, .fn: true
         case .optionSpace, .controlOptionSpace: false
         }
+    }
+
+    /// The modifier a single-key trigger is (none for key combos).
+    var modifier: NSEvent.ModifierFlags? {
+        switch self {
+        case .rightCommand: .command
+        case .rightOption: .option
+        case .fn: .function
+        case .optionSpace, .controlOptionSpace: nil
+        }
+    }
+}
+
+/// The key held with the dictation key to send that dictation to the stack (either side's).
+enum StackKey: String, CaseIterable, Identifiable {
+    case control
+    case option
+    case shift
+    case command
+    case off
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .control: "⌃ Control"
+        case .option: "⌥ Option"
+        case .shift: "⇧ Shift"
+        case .command: "⌘ Command"
+        case .off: "Off"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .control: "⌃"
+        case .option: "⌥"
+        case .shift: "⇧"
+        case .command: "⌘"
+        case .off: ""
+        }
+    }
+
+    var modifier: NSEvent.ModifierFlags? {
+        switch self {
+        case .control: .control
+        case .option: .option
+        case .shift: .shift
+        case .command: .command
+        case .off: nil
+        }
+    }
+
+    /// What to watch for with this dictation key: nothing for key combos (⌥ Space) or when it's
+    /// the dictation key's own modifier (⌘ with Right ⌘).
+    func modifier(with trigger: TriggerKey) -> NSEvent.ModifierFlags? {
+        guard let modifier, let own = trigger.modifier, modifier != own else { return nil }
+        return modifier
     }
 }
 
@@ -89,7 +147,13 @@ final class AppSettings: ObservableObject {
 
     private let defaults = UserDefaults.standard
 
-    @Published var trigger: TriggerKey { didSet { defaults.set(trigger.rawValue, forKey: "trigger") } }
+    @Published var trigger: TriggerKey {
+        didSet {
+            defaults.set(trigger.rawValue, forKey: "trigger")
+            // Right ⌘ can't be held with ⌘ to mean something else.
+            if stackKey.modifier == trigger.modifier { stackKey = .control }
+        }
+    }
     /// Dictation language (ISO 639 code, e.g. "en"). Defaults to the Mac's language.
     @Published var language: String { didSet { defaults.set(language, forKey: "language") } }
     /// Accent/region for that language ("GB", "US"…); "" matches the Mac.
@@ -132,6 +196,8 @@ final class AppSettings: ObservableObject {
     @Published var stackMode: Bool { didSet { defaults.set(stackMode, forKey: "stackMode") } }
     /// What Paste (and dragging the stack's tab) puts in: the stack, pinned lines, or both.
     @Published var stackPaste: StackPasteChoice { didSet { defaults.set(stackPaste.rawValue, forKey: "stackPaste") } }
+    /// Held with the dictation key, sends that dictation to the stack (default ⌃ Control).
+    @Published var stackKey: StackKey { didSet { defaults.set(stackKey.rawValue, forKey: "stackKey") } }
     /// Microphones in order of preference: Driftflow records from the first one that's connected.
     /// "System default" (uid "") is an entry too, always available, so it can be ranked anywhere.
     @Published var micPriority: [MicPreference] {
@@ -190,11 +256,13 @@ final class AppSettings: ObservableObject {
             "stackTab": StackTabStyle.faded.rawValue,
             "stackMode": false,
             "stackPaste": StackPasteChoice.stack.rawValue,
+            "stackKey": StackKey.control.rawValue,
             "keepFailedAudio": true,
             "duckAudio": true,
             "aiStyle": AIStyle.literal.rawValue,
             "learnCorrections": true,
         ])
+        stackKey = StackKey(rawValue: defaults.string(forKey: "stackKey") ?? "") ?? .control
         trigger = TriggerKey(rawValue: defaults.string(forKey: "trigger") ?? "") ?? .rightCommand
         // Migrate the old single "localeID" ("en-GB") setting.
         if let old = defaults.string(forKey: "localeID"), !old.isEmpty {
