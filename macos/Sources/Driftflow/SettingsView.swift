@@ -662,14 +662,10 @@ private struct ShortcutsPane: View {
                 LabeledContent("Cancel dictation") {
                     KeyCaps(["⎋"]).opacity(0.8)
                 }
-                if settings.trigger.isModifierOnly {
-                    Picker("Dictate into the stack", selection: $settings.stackKey) {
-                        ForEach(StackKey.allCases.filter { $0.modifier == nil || $0.modifier != settings.trigger.modifier }) { key in
-                            Text(key == .off ? "Off" : "\(settings.trigger.shortLabel) + \(key.label)").tag(key)
-                        }
-                    }
-                } else {
-                    LabeledContent("Dictate into the stack") {
+                LabeledContent("Dictate into the stack") {
+                    if settings.trigger.isModifierOnly {
+                        StackKeyRecorder(key: $settings.stackKey, trigger: settings.trigger)
+                    } else {
                         Text("Needs a single-key dictation key").foregroundStyle(.secondary)
                     }
                 }
@@ -679,7 +675,7 @@ private struct ShortcutsPane: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Hands-free on/off starts listening with one press and finishes with the next, no holding. Paste last dictation types your most recent dictation again at the cursor, handy when it landed in the wrong place. Esc cancels while listening.")
                     if controller.stackModifier != nil {
-                        Text("Dictate into the stack: hold \(settings.stackKey.label) (either side) together with your dictation key, before or while you speak, and that dictation goes into your stack instead of being pasted.")
+                        Text("Dictate into the stack: hold \(settings.stackKey.label) (either side) together with your dictation key, before or while you speak, and that dictation goes into your stack instead of being pasted. Click it and press ⌃, ⌥, ⇧ or ⌘ to change the key.")
                     }
                     Text("Edit selection by voice: select some text, press the shortcut, say what to change (“make this shorter”, “turn this into bullet points”, “fix the grammar”) and press it again. The selection is replaced. Uses Apple Intelligence on this Mac.")
                 }
@@ -759,6 +755,91 @@ private struct ShortcutRecorder: View {
                 }
             }
             return nil // swallow while recording
+        }
+    }
+
+    private func stop() {
+        recording = false
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+}
+
+/// The stack key, recorded like the other shortcuts: click, then press the modifier to hold with
+/// the dictation key (⌃, ⌥, ⇧ or ⌘, either side). ✕ or ⌫ turns it off, ⎋ cancels.
+private struct StackKeyRecorder: View {
+    @Binding var key: StackKey
+    let trigger: TriggerKey
+    @State private var recording = false
+    @State private var problem: String?
+    @State private var monitor: Any?
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 8) {
+                Button(action: toggle) {
+                    Group {
+                        if recording {
+                            Text("Press ⌃, ⌥, ⇧ or ⌘…").foregroundStyle(Color.accentColor)
+                        } else if key.modifier(with: trigger) != nil {
+                            KeyCaps([trigger.shortLabel, key.symbol])
+                        } else {
+                            Text("Not set").foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(minWidth: 110, minHeight: 24)
+                }
+                .glassButtonStyle()
+                .help(recording ? "Press the key to hold with \(trigger.shortLabel); ⎋ cancels, ⌫ turns it off"
+                                : "Click to choose the key you hold with \(trigger.shortLabel) to dictate into the stack")
+                if key != .off, !recording {
+                    Button { key = .off } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                        .buttonStyle(.plain)
+                        .help("Remove this shortcut")
+                }
+            }
+            if let problem {
+                Text(problem).font(.caption).foregroundStyle(.red)
+            }
+        }
+        .onDisappear(perform: stop)
+    }
+
+    private func toggle() {
+        recording ? stop() : start()
+    }
+
+    private func start() {
+        problem = nil
+        recording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { event in
+            if event.type == .keyDown {
+                switch Int(event.keyCode) {
+                case kVK_Escape:
+                    stop()
+                case kVK_Delete, kVK_ForwardDelete:
+                    key = .off
+                    stop()
+                default:
+                    problem = "Press a modifier key on its own: ⌃, ⌥, ⇧ or ⌘."
+                }
+                return nil
+            }
+            let pressed: StackKey? = switch Int(event.keyCode) {
+            case kVK_Control, kVK_RightControl: event.modifierFlags.contains(.control) ? .control : nil
+            case kVK_Option, kVK_RightOption: event.modifierFlags.contains(.option) ? .option : nil
+            case kVK_Shift, kVK_RightShift: event.modifierFlags.contains(.shift) ? .shift : nil
+            case kVK_Command, kVK_RightCommand: event.modifierFlags.contains(.command) ? .command : nil
+            default: nil
+            }
+            guard let pressed else { return event } // a key coming back up
+            if pressed.modifier(with: trigger) == nil {
+                problem = "\(pressed.symbol) is part of your dictation key (\(trigger.shortLabel)). Pick another."
+            } else {
+                key = pressed
+                stop()
+            }
+            return event
         }
     }
 
