@@ -617,6 +617,13 @@ private struct DropZone: View {
     @Binding var importing: Bool
     let engine: String
 
+    /// macOS 26 reads Ogg itself, which covers WhatsApp voice notes (.opus, .ogg).
+    private static var formats: String {
+        AudioDecoder.readsOgg
+            ? "MP3, M4A, WAV, FLAC, MP4, MOV, WhatsApp voice notes (.opus, .ogg) and more"
+            : "MP3, M4A, WAV, AIFF, FLAC, CAF, MP4, MOV and more"
+    }
+
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 14) {
@@ -626,7 +633,7 @@ private struct DropZone: View {
                     .foregroundStyle(.tint)
                 Text("Drop audio or video files")
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
-                Text("MP3, M4A, WAV, AIFF, FLAC, CAF, MP4, MOV and more, or a whole folder.\nTranscribed on this Mac. Nothing is uploaded.")
+                Text("\(Self.formats), or a whole folder.\nTranscribed on this Mac. Nothing is uploaded.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                 Button("Choose Files…") { importing = true }
@@ -645,7 +652,7 @@ private struct DropZone: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if AudioDecoder.ffmpegPath == nil {
-                Text("Ogg, WebM, MKV and WMA need ffmpeg (brew install ffmpeg).")
+                Text("\(AudioDecoder.readsOgg ? "" : "Ogg, ")WebM, MKV and WMA need ffmpeg (brew install ffmpeg).")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }

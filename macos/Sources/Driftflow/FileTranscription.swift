@@ -203,6 +203,13 @@ enum AudioDecoder {
         return try FFmpegBlockReader(ffmpeg: ffmpeg, url: url)
     }
 
+    /// Whether macOS reads Ogg files (Opus, FLAC, Vorbis) itself: new in macOS 26, and what
+    /// WhatsApp voice notes are. Earlier versions need ffmpeg for them.
+    static var readsOgg: Bool {
+        if #available(macOS 26.0, *) { return true }
+        return false
+    }
+
     static var ffmpegPath: String? {
         let candidates = [ProcessInfo.processInfo.environment["DRIFTFLOW_FFMPEG"],
                           "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/local/bin/ffmpeg"]
