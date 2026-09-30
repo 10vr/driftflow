@@ -205,19 +205,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for uid in [""] + AudioDevices.shared.inputs.map(\.uid) + [""] {
             capture.preferredDeviceUIDs = [uid]
             let pipe = AudioPipe()
-            let counter = OSAllocatedUnfairLock(initialState: (frames: 0, rate: 0.0, channels: 0))
+            let began = DispatchTime.now().uptimeNanoseconds
+            let counter = OSAllocatedUnfairLock(initialState: (frames: 0, rate: 0.0, channels: 0, firstMs: -1))
             pipe.attach { buffer in
-                counter.withLock { $0 = ($0.frames + Int(buffer.frameLength), buffer.format.sampleRate, Int(buffer.format.channelCount)) }
+                let ms = Int((DispatchTime.now().uptimeNanoseconds - began) / 1_000_000)
+                counter.withLock { $0 = ($0.frames + Int(buffer.frameLength), buffer.format.sampleRate, Int(buffer.format.channelCount),
+                                         $0.firstMs < 0 ? ms : $0.firstMs) }
             }
             let name = uid.isEmpty ? "System default (\(AudioDevices.shared.defaultInputName))"
                 : AudioDevices.shared.inputs.first { $0.uid == uid }?.name ?? uid
             do {
                 try capture.beginRecording(into: pipe, includePreroll: false)
-                try? await Task.sleep(for: .milliseconds(500))
+                try? await Task.sleep(for: .milliseconds(1500))
                 capture.endRecording()
                 capture.cool()
                 let result = counter.withLock { $0 }
-                lines.append("\(name): \(result.frames) frames at \(Int(result.rate)) Hz, \(result.channels) ch")
+                lines.append("\(name): \(result.frames) frames at \(Int(result.rate)) Hz, \(result.channels) ch, first audio after \(result.firstMs) ms")
             } catch {
                 lines.append("\(name): failed: \(error.localizedDescription)")
             }

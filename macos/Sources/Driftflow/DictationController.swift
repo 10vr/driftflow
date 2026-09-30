@@ -610,13 +610,12 @@ final class DictationController: ObservableObject {
         LevelStore.shared.reset()
 
         // Capture starts before the model is ready; the pipe buffers audio until the session attaches.
+        // The microphone switches on in the background (a cold start takes 70–160 ms), so the pill
+        // and the start sound don't wait for it.
         pipe.reset()
-        do {
-            try audio.beginRecording(into: pipe, includePreroll: true)
-        } catch {
-            phase = .idle
-            show(error: error.localizedDescription)
-            return
+        audio.beginRecording(into: pipe, includePreroll: true) { [weak self] error in
+            guard let self, let error else { return }
+            self.microphoneFailed(error, generation: generation)
         }
 
         recordingStartedAt = clock.now
@@ -830,6 +829,26 @@ final class DictationController: ObservableObject {
             finishUp(hideAfter: inserted ? 0.5 : 0)
             if inserted { completedCount += 1 }
         }
+    }
+
+    /// The microphone couldn't be opened for the dictation that just started: end it and say why.
+    private func microphoneFailed(_ error: Error, generation: Int) {
+        guard generation == self.generation, phase == .listening else { return }
+        self.generation += 1 // the session that was starting up is abandoned
+        feedbackWork?.cancel()
+        feedbackWork = nil
+        parakeetPreview.stop()
+        pauseDetector.stop()
+        audio.endRecording()
+        releaseMic()
+        startTask?.cancel()
+        finalizer?.cancel()
+        finalizer = nil
+        if let session { Task { await session.cancel() } }
+        session = nil
+        ducker.restore()
+        show(error: error.localizedDescription)
+        finishUp(hideAfter: 0)
     }
 
     /// Cancels the current dictation immediately, even if the model is still loading.

@@ -9,6 +9,10 @@ import os
 /// pre-roll ring, so when recording begins the words you started saying *just before* the key went
 /// down are included. The engine can stay warm between dictations (`linger`) or permanently
 /// (`alwaysReady`), making back-to-back dictations start instantly.
+///
+/// Every engine operation runs on `queue`, one at a time and never on the main thread: switching a
+/// cold microphone on takes 70–160 ms, and doing that on the main thread held back the pill and
+/// the start sound after you pressed the key.
 final class AudioCapture: @unchecked Sendable {
     enum CaptureError: LocalizedError {
         case noInputDevice
@@ -22,6 +26,9 @@ final class AudioCapture: @unchecked Sendable {
         }
     }
 
+    private let queue = DispatchQueue(label: "dev.driftflow.microphone", qos: .userInteractive)
+
+    // Only touched on `queue`:
     private var engine = AVAudioEngine()
     /// The microphone the engine was pointed at, or nil while it follows the system default input
     /// by itself. Following the default is what keeps Bluetooth headsets stable: pointing the
@@ -32,14 +39,21 @@ final class AudioCapture: @unchecked Sendable {
     private var recentChanges: [UInt64] = []
     private var restartGeneration = 0
     private var restartPending = false
-    private let state = OSAllocatedUnfairLock(initialState: State())
     private var configObserver: NSObjectProtocol?
-    private(set) var isRunning = false
+    private var running = false
     /// Whether the mic should be on (cleared by `cool()`), so a delayed restart after a device
     /// change never turns it back on once you're done.
     private var wanted = false
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let preferred = OSAllocatedUnfairLock(initialState: [String]())
     /// Microphones in order of preference (CoreAudio UIDs; "" = the system default).
-    var preferredDeviceUIDs: [String] = []
+    var preferredDeviceUIDs: [String] {
+        get { preferred.withLock { $0 } }
+        set { preferred.withLock { $0 = newValue } }
+    }
+    /// Whether the engine is on. Waits for a start or stop already under way.
+    var isRunning: Bool { queue.sync { running } }
     /// Loudest buffer since the last `beginRecording`, in dBFS (−160 = nothing at all). Audio thread writes.
     private let peak = OSAllocatedUnfairLock(initialState: Float(-160))
     var peakDecibels: Float { peak.withLock { $0 } }
@@ -51,7 +65,6 @@ final class AudioCapture: @unchecked Sendable {
     var onLevel: (@Sendable (Float) -> Void)?
     /// Called on the main thread with how long a cold start took until the first audio arrived.
     var onColdStart: ((Int) -> Void)?
-    private var coldStartBegan: UInt64?
     /// Called on the main thread when the input device changed and the mic couldn't restart.
     var onFailure: ((Error) -> Void)?
 
@@ -60,22 +73,28 @@ final class AudioCapture: @unchecked Sendable {
         var preroll: [AVAudioPCMBuffer] = []
         var prerollFrames: AVAudioFrameCount = 0
         var prerollLimit: AVAudioFrameCount = 24_000
+        var coldStartBegan: UInt64?
     }
 
-    init() { observeConfiguration() }
+    init() { queue.sync { observeConfiguration() } }
 
     private func observeConfiguration() {
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
         configObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
         ) { [weak self] _ in
-            onMainThread { self?.handleConfigurationChange() }
+            self?.queue.async { self?.handleConfigurationChange() }
         }
     }
 
     /// Starts the engine (if needed) without recording; audio flows into the pre-roll ring.
+    /// Waits until it's on.
     func warm() throws {
-        guard !isRunning else { return }
+        try queue.sync { try warmNow() }
+    }
+
+    private func warmNow() throws {
+        guard !running else { return }
         let chosen = selectDevice()
         let input = engine.inputNode
         // The chosen microphone's own format. After switching devices, the node's output format
@@ -89,8 +108,8 @@ final class AudioCapture: @unchecked Sendable {
             ? hardware : output
         guard format.channelCount > 0, format.sampleRate > 0 else { throw CaptureError.noInputDevice }
 
-        coldStartBegan = DispatchTime.now().uptimeNanoseconds
         state.withLock {
+            $0.coldStartBegan = DispatchTime.now().uptimeNanoseconds
             $0.prerollLimit = AVAudioFrameCount(format.sampleRate * 0.5)
             $0.preroll.removeAll()
             $0.prerollFrames = 0
@@ -116,16 +135,18 @@ final class AudioCapture: @unchecked Sendable {
             input.removeTap(onBus: 0)
             throw error
         }
-        isRunning = true
+        running = true
         wanted = true
     }
 
     /// The microphone the engine is using now vs. the one it would pick if started now
     /// (the chosen mic came back, the default changed, a device appeared).
     var isOnPreferredDevice: Bool {
-        guard isRunning, let chosen = AudioDevices.deviceID(forPriority: preferredDeviceUIDs) else { return true }
-        // Following the default: right as long as the default is the one to use.
-        return chosen == (forcedDevice ?? AudioDevices.defaultInput())
+        queue.sync {
+            guard running, let chosen = AudioDevices.deviceID(forPriority: preferredDeviceUIDs) else { return true }
+            // Following the default: right as long as the default is the one to use.
+            return chosen == (forcedDevice ?? AudioDevices.defaultInput())
+        }
     }
 
     /// Points the engine's input at the chosen microphone, or lets it follow the system default
@@ -148,14 +169,19 @@ final class AudioCapture: @unchecked Sendable {
         return chosen
     }
 
-    /// Stops the microphone entirely (the privacy indicator goes away).
+    /// Stops the microphone entirely (the privacy indicator goes away). Returns at once; the
+    /// engine stops in the background, before anything asked of it afterwards.
     func cool() {
+        queue.async { self.coolNow() }
+    }
+
+    private func coolNow() {
         wanted = false
         recentChanges.removeAll()
-        guard isRunning else { return }
+        guard running else { return }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        isRunning = false
+        running = false
         delivering.withLock { $0 = false }
         state.withLock {
             $0.pipe = nil
@@ -164,9 +190,24 @@ final class AudioCapture: @unchecked Sendable {
         }
     }
 
-    /// Routes audio to `pipe`, starting with the pre-roll captured before this call.
+    /// Routes audio to `pipe`, starting with the pre-roll captured before this call. Waits until
+    /// the microphone is on.
     func beginRecording(into pipe: AudioPipe, includePreroll: Bool) throws {
-        try warm()
+        try queue.sync { try beginNow(into: pipe, includePreroll: includePreroll) }
+    }
+
+    /// As above, without waiting: returns at once and calls `completion` on the main thread once
+    /// the microphone is on (nil) or couldn't be opened. Audio from its first moment is kept.
+    func beginRecording(into pipe: AudioPipe, includePreroll: Bool, completion: @escaping @MainActor (Error?) -> Void) {
+        queue.async {
+            var failure: Error?
+            do { try self.beginNow(into: pipe, includePreroll: includePreroll) } catch { failure = error }
+            DispatchQueue.main.async { onMainThread { completion(failure) } }
+        }
+    }
+
+    private func beginNow(into pipe: AudioPipe, includePreroll: Bool) throws {
+        try warmNow()
         peak.withLock { $0 = -160 }
         state.withLock { state in
             if includePreroll { state.preroll.forEach(pipe.push) }
@@ -176,28 +217,30 @@ final class AudioCapture: @unchecked Sendable {
         }
     }
 
+    /// Stops routing audio to the pipe (after a start that's still under way, if there is one).
     func endRecording() {
-        state.withLock { $0.pipe = nil }
+        queue.async { self.state.withLock { $0.pipe = nil } }
     }
 
     private func receive(_ buffer: AVAudioPCMBuffer) {
         delivering.withLock { $0 = true }
-        if let began = coldStartBegan {
-            coldStartBegan = nil
-            let ms = Int((DispatchTime.now().uptimeNanoseconds - began) / 1_000_000)
-            DispatchQueue.main.async { [weak self] in self?.onColdStart?(ms) }
-        }
-        let pipe = state.withLock { state -> AudioPipe? in
-            if let pipe = state.pipe { return pipe }
+        let (pipe, began) = state.withLock { state -> (AudioPipe?, UInt64?) in
+            let began = state.coldStartBegan
+            state.coldStartBegan = nil
+            if let pipe = state.pipe { return (pipe, began) }
             // Not recording: keep a rolling window of recent audio.
-            guard let copy = buffer.deepCopy() else { return nil }
+            guard let copy = buffer.deepCopy() else { return (nil, began) }
             state.preroll.append(copy)
             state.prerollFrames += copy.frameLength
             while state.prerollFrames > state.prerollLimit, let first = state.preroll.first {
                 state.prerollFrames -= first.frameLength
                 state.preroll.removeFirst()
             }
-            return nil
+            return (nil, began)
+        }
+        if let began {
+            let ms = Int((DispatchTime.now().uptimeNanoseconds - began) / 1_000_000)
+            DispatchQueue.main.async { [weak self] in self?.onColdStart?(ms) }
         }
         guard let pipe else { return }
         pipe.push(buffer)
@@ -206,16 +249,16 @@ final class AudioCapture: @unchecked Sendable {
         onLevel?(max(0, min(1, (decibels + 50) / 42)))
     }
 
-    @MainActor
+    /// On `queue`.
     private func handleConfigurationChange() {
         // The input device or its format changed (AirPods connected, default mic switched...).
         // The engine has stopped itself; the recording (if any) carries on once it restarts.
-        let listening = isRunning || restartPending
+        let listening = running || restartPending
         AppLog.info("Audio devices changed\(listening ? " while listening: restarting the microphone" : "")")
-        if isRunning {
+        if running {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
-            isRunning = false
+            running = false
         }
         guard listening, wanted else { return }
         // Devices can send changes in bursts while they switch: restart right away the first
@@ -226,21 +269,21 @@ final class AudioCapture: @unchecked Sendable {
         restartGeneration += 1
         restartPending = true
         let generation = restartGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.restartGeneration == generation else { return } // a later change took over
             self.restartPending = false
             guard self.wanted else { return } // cooled meanwhile: stay off
             do {
-                try self.warm()
+                try self.warmNow()
             } catch {
                 // Devices often report zero channels for a moment while switching; try once more.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self.queue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                     guard let self, self.wanted else { return }
                     do {
-                        try self.warm()
+                        try self.warmNow()
                     } catch {
                         AppLog.error("The microphone couldn't restart after a device change: \(error.localizedDescription)")
-                        self.onFailure?(error)
+                        DispatchQueue.main.async { self.onFailure?(error) }
                     }
                 }
             }
