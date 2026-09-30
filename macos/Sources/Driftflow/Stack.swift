@@ -131,9 +131,21 @@ struct NamedStack: Identifiable, Codable, Equatable {
     var items: [StackItem] = []
     /// When its lines or name last changed, or it was last put in use (for keeping it).
     var changed: Date?
+    /// Its SF Symbol, chosen on the Stacks page (nil: the plain stack).
+    var icon: String?
 
     var joined: String { items.map(\.text).joined(separator: " ") }
     var lastChanged: Date { changed ?? created }
+    var symbol: String { icon ?? Self.defaultIcon }
+
+    static let defaultIcon = "rectangle.stack.fill"
+    /// The icons a stack can have, for telling them apart at a glance (who or what it's for).
+    static let icons = [
+        defaultIcon, "person.fill", "person.2.fill", "briefcase.fill", "envelope.fill", "bubble.left.fill",
+        "phone.fill", "heart.fill", "star.fill", "flag.fill", "bolt.fill", "lightbulb.fill",
+        "book.fill", "house.fill", "cart.fill", "gift.fill", "camera.fill", "music.note",
+        "airplane", "graduationcap.fill", "calendar", "doc.text.fill", "hammer.fill", "leaf.fill",
+    ]
 }
 
 /// Your stacks, and the one in use: the floating stack at the bottom right, which new dictations
@@ -302,6 +314,12 @@ final class DictationStack: ObservableObject {
         activeID = id
         pruneEmpty()
         hidden = false
+    }
+
+    func setIcon(_ id: UUID, to icon: String) {
+        guard let index = stacks.firstIndex(where: { $0.id == id }) else { return }
+        stacks[index].icon = icon == NamedStack.defaultIcon ? nil : icon
+        stacks[index].changed = Date()
     }
 
     func rename(_ id: UUID, to name: String) {
@@ -828,7 +846,10 @@ final class StackPanel {
                      "Also remind me to send the invoice to Daniel before Friday."]
         for text in many ? lines + lines.dropFirst() + lines.dropFirst() : lines { stack.add(text) }
         if let first = stack.items.first { stack.togglePin(first.id) }
-        if let id = stack.activeID { stack.rename(id, to: "Message to Sarah") }
+        if let id = stack.activeID {
+            stack.rename(id, to: "Message to Sarah")
+            stack.setIcon(id, to: "person.fill")
+        }
         start()
         place(on: screen)
         // The capture region in global top-left coordinates.
@@ -959,11 +980,12 @@ struct StackView: View {
 
     private var faded: Bool { settings.stackTab == .faded && !state.expanded && !state.peeking && !settings.stackMode }
 
+    /// The stack in use (its icon), how many lines it holds, and the pinned lines apart.
     private var tab: some View {
-        let count = stack.items.count // pinned lines count too: they're in the stack
+        let count = stack.queue.count
         let dropping = stack.pasteItems.count
         return HStack(spacing: 6) {
-            Image(systemName: "rectangle.stack.fill")
+            Image(systemName: stack.active?.symbol ?? NamedStack.defaultIcon)
                 .foregroundStyle(Brand.violet)
                 .symbolEffect(.bounce, value: stack.addedCount)
             Group {
@@ -975,7 +997,17 @@ struct StackView: View {
             }
             .font(.system(size: 13, weight: .semibold, design: .rounded))
             .monospacedDigit()
+            if !stack.pins.isEmpty {
+                Capsule().fill(.primary.opacity(0.15)).frame(width: 1, height: 14)
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(Brand.violet)
+                Text("\(stack.pins.count)")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+            }
         }
+        .help(stack.pins.isEmpty ? "\(stack.active?.name ?? "Stack")" : "\(stack.active?.name ?? "Stack") · \(stack.pins.count) pinned")
         .font(.system(size: 13))
         .padding(.horizontal, 13)
         .frame(height: 30)
@@ -998,8 +1030,8 @@ struct StackView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 stackSwitcher
-                if !stack.items.isEmpty {
-                    Text("\(stack.items.count)")
+                if !stack.queue.isEmpty {
+                    Text("\(stack.queue.count)")
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
@@ -1151,22 +1183,20 @@ struct StackView: View {
     /// The stack in use, by name; ▾ switches to another or starts a new one.
     private var stackSwitcher: some View {
         Menu {
-            ForEach(stack.stacks.reversed()) { other in
-                Button {
-                    DictationStack.shared.activate(other.id)
-                } label: {
-                    if other.id == stack.activeID {
-                        Label(other.name, systemImage: "checkmark")
-                    } else {
-                        Text(other.name)
-                    }
+            Picker("Stacks", selection: Binding(get: { stack.activeID }, set: { if let id = $0 { DictationStack.shared.activate(id) } })) {
+                ForEach(stack.stacks.reversed()) { other in
+                    Label(other.name, systemImage: other.symbol).tag(Optional(other.id))
                 }
             }
+            .pickerStyle(.inline)
             Divider()
             Button("New Stack") { StackPanel.shared.newStack() }
             Button("All Stacks…") { DictationController.shared.openSettings(.stacks) }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
+                Image(systemName: stack.active?.symbol ?? NamedStack.defaultIcon)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Brand.violet)
                 Text(stack.active?.name ?? "Stack")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .lineLimit(1)

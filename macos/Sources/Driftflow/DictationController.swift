@@ -32,6 +32,8 @@ final class DictationController: ObservableObject {
     private var toStack = false
     /// ✓ on the pill in Stack Mode: paste this one after all.
     private var pasteNow = false
+    /// ⌥ Option held with the dictation key (⌘ when the key is Right ⌥): this one goes in the stack.
+    @Published private(set) var stackRequested = false
     /// Key release → text handed to the target app, for the most recent dictation.
     @Published private(set) var lastLatencyMs: Int?
     /// Time the microphone took to deliver audio on its most recent cold start.
@@ -157,6 +159,7 @@ final class DictationController: ObservableObject {
             self?.handle(.triggerUp(at: time))
         }
         hotkeys.onKeyDown = { [weak self] code in self?.otherKeyDown(code) }
+        hotkeys.onModifiers = { [weak self] flags in self?.modifiersChanged(flags) }
         hotkeys.install(settings.trigger)
 
         settings.$trigger
@@ -664,6 +667,22 @@ final class DictationController: ObservableObject {
         }
     }
 
+    /// The key that, held with your dictation key, sends that dictation to the stack: ⌥ Option, or
+    /// ⌘ Command when the dictation key is Right ⌥ itself. Only for single-key dictation keys.
+    var stackModifier: NSEvent.ModifierFlags? {
+        switch settings.trigger {
+        case .rightOption: .command
+        case .rightCommand, .fn: .option
+        default: nil
+        }
+    }
+
+    private func modifiersChanged(_ flags: NSEvent.ModifierFlags) {
+        guard phase == .listening, editSelection == nil, !stackRequested,
+              let modifier = stackModifier, flags.contains(modifier) else { return }
+        stackRequested = true
+    }
+
     /// The stack button on the pill: finish now and keep the text in the stack.
     func finishIntoStack() {
         guard phase == .listening, editSelection == nil else { return }
@@ -708,10 +727,12 @@ final class DictationController: ObservableObject {
         lastWentToStack = false
         toStack = false
         pasteNow = false
+        stackRequested = false
         appleHasText = false
         earlyText = nil
         phase = .listening
         self.handsFree = handsFree
+        modifiersChanged(NSEvent.modifierFlags) // ⌥ already down when the key went down
         finalizedText = ""
         volatileText = ""
         statusMessage = nil
@@ -907,7 +928,7 @@ final class DictationController: ObservableObject {
                 }
                 // Into the stack when you asked for it (the pill's button, Stack Mode), or when there's
                 // clearly no text box to paste into.
-                let stacking = !text.isEmpty && !pasteNow && (toStack || settings.stackMode)
+                let stacking = !text.isEmpty && !pasteNow && (toStack || stackRequested || settings.stackMode)
                 var noTextBox = false
                 if !stacking, !text.isEmpty, settings.autoPaste { noTextBox = await nothingToPasteInto() }
                 guard generation == self.generation else { return }

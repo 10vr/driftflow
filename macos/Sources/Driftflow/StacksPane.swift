@@ -25,6 +25,8 @@ struct StacksPane: View {
 
     @ObservedObject private var store = DictationStack.shared
     @State private var selection: Selection?
+    /// Rename in a stack's menu: its name field takes the focus.
+    @State private var renaming: UUID?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -40,12 +42,16 @@ struct StacksPane: View {
                         ForEach(store.stacks.reversed()) { stack in
                             StackListRow(name: stack.name,
                                          detail: "\(lines(stack.items.count)) · \(stack.lastChanged.formatted(.relative(presentation: .named)))",
-                                         icon: "rectangle.stack", inUse: stack.id == store.activeID,
+                                         icon: stack.symbol, inUse: stack.id == store.activeID,
                                          selected: current == .stack(stack.id))
                                 .tag(Selection.stack(stack.id))
                                 .contextMenu {
                                     if stack.id != store.activeID {
                                         Button("Use This Stack") { store.activate(stack.id) }
+                                    }
+                                    Button("Rename") {
+                                        selection = .stack(stack.id)
+                                        renaming = stack.id
                                     }
                                     Button("Copy All") { TextInserter.shared.copy(stack.joined) }
                                         .disabled(stack.items.isEmpty)
@@ -76,7 +82,7 @@ struct StacksPane: View {
                     PinsDetail(store: store)
                 case .stack(let id):
                     if let stack = store.stacks.first(where: { $0.id == id }) {
-                        StackDetail(stack: stack, inUse: stack.id == store.activeID, store: store) { delete(id) }
+                        StackDetail(stack: stack, inUse: stack.id == store.activeID, store: store, renaming: $renaming) { delete(id) }
                     } else {
                         empty
                     }
@@ -150,7 +156,10 @@ private struct StackDetail: View {
     let stack: NamedStack
     let inUse: Bool
     @ObservedObject var store: DictationStack
+    @Binding var renaming: UUID?
     let delete: () -> Void
+    @State private var choosingIcon = false
+    @FocusState private var naming: Bool
 
     /// " · kept 30 days after its last change", when History (and so stacks) isn't kept forever.
     private var keptFor: String {
@@ -164,12 +173,38 @@ private struct StackDetail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: 12) {
+                // Its icon: click to choose another (the floating stack shows it while in use).
+                Button { choosingIcon = true } label: {
+                    Image(systemName: stack.symbol)
+                        .font(.system(size: 18))
+                        .foregroundStyle(Brand.violet)
+                        .frame(width: 42, height: 42)
+                        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Brand.violet.opacity(0.12)))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help("Choose an icon for this stack")
+                .popover(isPresented: $choosingIcon, arrowEdge: .bottom) {
+                    StackIconGrid(selected: stack.symbol) { icon in
+                        store.setIcon(stack.id, to: icon)
+                        choosingIcon = false
+                    }
+                }
                 VStack(alignment: .leading, spacing: 4) {
-                    TextField("Name", text: Binding(get: { stack.name }, set: { store.rename(stack.id, to: $0) }))
-                        .textFieldStyle(.plain)
-                        .font(.title2.weight(.semibold))
+                    HStack(spacing: 6) {
+                        TextField("Name", text: Binding(get: { stack.name }, set: { store.rename(stack.id, to: $0) }))
+                            .textFieldStyle(.plain)
+                            .font(.title2.weight(.semibold))
+                            .focused($naming)
+                            .frame(maxWidth: 320, alignment: .leading)
+                            .fixedSize(horizontal: true, vertical: false)
+                        Button { naming = true } label: {
+                            Image(systemName: "pencil").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
                         .help("Rename this stack")
+                    }
                     Text(inUse ? "In use: it's the floating stack at the bottom right, and new dictations go into it."
                          : "\(stack.items.count == 1 ? "1 line" : "\(stack.items.count) lines") · last changed \(stack.lastChanged.formatted(date: .abbreviated, time: .shortened))\(keptFor)")
                         .font(.callout)
@@ -190,6 +225,11 @@ private struct StackDetail: View {
             }
             .padding(20)
             Divider()
+                .onChange(of: renaming, initial: true) {
+                    guard renaming == stack.id else { return }
+                    naming = true
+                    renaming = nil
+                }
             if stack.items.isEmpty {
                 ContentUnavailableView("Empty", systemImage: "rectangle.stack",
                                        description: Text(inUse ? "New dictations will stack up here." : "This stack has no lines."))
@@ -227,6 +267,30 @@ private struct PinsDetail: View {
                 .onMove { store.movePins(from: $0, to: $1) }
             }
         }
+    }
+}
+
+/// The icons to choose from for a stack.
+private struct StackIconGrid: View {
+    let selected: String
+    let choose: (String) -> Void
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 6), count: 6), spacing: 6) {
+            ForEach(NamedStack.icons, id: \.self) { icon in
+                Button { choose(icon) } label: {
+                    Image(systemName: icon)
+                        .font(.system(size: 15))
+                        .foregroundStyle(icon == selected ? Brand.violet : Color.primary)
+                        .frame(width: 36, height: 36)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(icon == selected ? Brand.violet.opacity(0.22) : Color.primary.opacity(0.05)))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
     }
 }
 

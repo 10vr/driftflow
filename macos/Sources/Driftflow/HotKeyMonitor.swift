@@ -11,6 +11,8 @@ final class HotKeyMonitor {
     var onRelease: (TimeInterval) -> Void = { _ in }
     /// Any other key pressed while Driftflow is running (used for Esc and chord detection).
     var onKeyDown: (UInt16) -> Void = { _ in }
+    /// The modifier keys held, whenever they change (modifier-only triggers).
+    var onModifiers: (NSEvent.ModifierFlags) -> Void = { _ in }
 
     private(set) var trigger: TriggerKey = .rightOption
     private(set) var isDown = false
@@ -68,6 +70,7 @@ final class HotKeyMonitor {
     }
 
     private func handleFlags(_ event: NSEvent) {
+        onModifiers(event.modifierFlags)
         let flags = event.modifierFlags.rawValue
         let down: Bool
         switch trigger {

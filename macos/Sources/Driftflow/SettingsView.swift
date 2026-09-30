@@ -640,11 +640,19 @@ private struct ShortcutsPane: View {
                 LabeledContent("Cancel dictation") {
                     KeyCaps(["⎋"]).opacity(0.8)
                 }
+                LabeledContent("Dictate into the stack") {
+                    if let modifier = controller.stackModifier {
+                        KeyCaps([settings.trigger.shortLabel, modifier == .command ? "⌘" : "⌥"]).opacity(0.8)
+                    } else {
+                        Text("Needs a single-key dictation key").foregroundStyle(.secondary)
+                    }
+                }
             } header: {
                 Text("More shortcuts")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Hands-free on/off starts listening with one press and finishes with the next, no holding. Paste last dictation types your most recent dictation again at the cursor, handy when it landed in the wrong place. Esc cancels while listening.")
+                    Text("Dictate into the stack: hold \(controller.stackModifier == .command ? "⌘ Command" : "⌥ Option") together with your dictation key (before or while you speak) and that dictation goes into your stack instead of being pasted.")
                     Text("Edit selection by voice: select some text, press the shortcut, say what to change (“make this shorter”, “turn this into bullet points”, “fix the grammar”) and press it again. The selection is replaced. Uses Apple Intelligence on this Mac.")
                 }
                 .foregroundStyle(.secondary)

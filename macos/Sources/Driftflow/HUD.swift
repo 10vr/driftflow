@@ -396,7 +396,7 @@ struct HUDView: View {
                     .transition(.opacity.combined(with: .move(edge: .leading)))
             }
             pillButton("rectangle.stack.badge.plus", help: "Add to the stack, to paste later", edge: .leading, tint: Brand.violet,
-                       shown: showStackButton) { controller.finishIntoStack() }
+                       shown: showStackButton, lit: controller.stackRequested) { controller.finishIntoStack() }
             pillButton("checkmark", help: settings.stackMode ? "Paste this one now" : "Finish and insert", edge: .leading,
                        gap: showStackButton ? 6 : 12) { controller.finishAndPaste() }
         }
@@ -422,15 +422,16 @@ struct HUDView: View {
     /// Always in the layout, so showing it is a pure size animation: its slot opens from zero width
     /// while the icon scales up inside it, and the pill, text and icons all move on the same spring.
     /// (Inserting the button instead places it at its final spot at once, outside the growing pill.)
+    /// `lit`: this dictation is going there (⌥ held with the dictation key).
     private func pillButton(_ symbol: String, help: String, edge: Edge.Set, gap: CGFloat = 12, tint: Color? = nil,
-                            shown: Bool? = nil, action: @escaping () -> Void) -> some View {
+                            shown: Bool? = nil, lit: Bool = false, action: @escaping () -> Void) -> some View {
         let showButtons = shown ?? showButtons
         return Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
                 .frame(width: 30, height: 30)
-                .background(Circle().fill(.primary.opacity(0.08)))
+                .background(Circle().fill(lit ? AnyShapeStyle(Brand.violet.opacity(0.28)) : AnyShapeStyle(.primary.opacity(0.08))))
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
