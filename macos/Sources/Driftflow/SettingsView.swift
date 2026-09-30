@@ -1008,7 +1008,7 @@ private struct HistoryPane: View {
                     }
                 }
             } footer: {
-                Text("Stored only on this Mac and kept across restarts and updates. Never uploaded. Audio is never kept for dictations that worked; for one that fails, it's kept so you can press Retry, then deleted after the retry or 24 hours.")
+                Text("Stored only on this Mac and kept across restarts and updates. Never uploaded. Audio is never kept for dictations that worked; for one that fails, it's kept so you can press Retry, then deleted after the retry or 24 hours. Stacks follow the same period, counted from their last change (clearing History leaves them alone, and pinned lines are kept until you remove them).")
                     .foregroundStyle(.secondary)
             }
 

@@ -368,6 +368,76 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
         exit(0)
     }
     dispatchMain()
+} else if arguments.contains("--stack-test") {
+    // The stack's rules, on a scratch copy: `DRIFTFLOW_DATA_DIR=<empty folder> Driftflow --stack-test`.
+    guard let folder = ProcessInfo.processInfo.environment["DRIFTFLOW_DATA_DIR"] else {
+        FileHandle.standardError.write(Data("--stack-test needs DRIFTFLOW_DATA_DIR (an empty scratch folder), so your stacks aren't touched\n".utf8))
+        exit(2)
+    }
+    Task { @MainActor in
+        var failures = 0
+        func check(_ ok: Bool, _ what: String) {
+            print(ok ? "PASS" : "FAIL", what)
+            if !ok { failures += 1 }
+        }
+        // Stored stacks: one left alone for 40 days (in use), one changed yesterday, and a pin.
+        let day: TimeInterval = 86_400
+        let old = NamedStack(name: "Old", created: Date().addingTimeInterval(-50 * day),
+                             items: [StackItem(text: "old line", added: Date().addingTimeInterval(-50 * day))],
+                             changed: Date().addingTimeInterval(-40 * day))
+        let recent = NamedStack(name: "Recent", created: Date().addingTimeInterval(-3 * day),
+                                items: [StackItem(text: "recent line", added: Date())], changed: Date().addingTimeInterval(-day))
+        var pin = StackItem(text: "pinned line", added: Date().addingTimeInterval(-90 * day))
+        pin.pinned = true
+        struct Stored: Codable { var pins: [StackItem]; var stacks: [NamedStack]; var activeID: UUID? }
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(Stored(pins: [pin], stacks: [old, recent], activeID: old.id))
+            .write(to: URL(fileURLWithPath: folder).appendingPathComponent("stacks.json"))
+
+        let stack = DictationStack.shared
+        let retention = AppSettings.shared.historyRetention
+        if retention == .week || retention == .month {
+            check(stack.stacks.map(\.name) == ["Recent"], "a stack unchanged for 40 days is removed (History keeps \(retention.label))")
+            check(stack.activeID == recent.id, "the remaining stack is put in use")
+        } else {
+            print("SKIP pruning: History is set to \(retention.label)")
+        }
+        check(stack.pins.map(\.text) == ["pinned line"], "pins never expire")
+
+        stack.activate(recent.id)
+        for n in 1...12 { stack.add("line \(n)") }
+        check(stack.queue.count == DictationStack.capacity, "a stack holds \(DictationStack.capacity) lines")
+        check(stack.queue.last?.text == "line 12" && stack.queue.first?.text == "line 3", "the oldest lines are pushed out, in order")
+
+        let third = stack.queue[2].id
+        check(stack.togglePin(third) && stack.pins.count == 2 && stack.queue.count == 9, "pinning moves a line to the shared pins")
+        stack.used([third])
+        check(stack.pins.contains { $0.id == third }, "a pinned line stays after it's pasted")
+        let first = stack.queue[0].id
+        stack.used([first])
+        check(!stack.queue.contains { $0.id == first }, "a pasted line leaves the stack")
+
+        let firstID = stack.queue[0].id, lastID = stack.queue[stack.queue.count - 1].id
+        stack.move(lastID, to: StackDropMarker(id: firstID, above: true))
+        check(stack.queue.first?.id == lastID, "dragging a line to the top reorders it")
+
+        let before = stack.activeID
+        stack.newStack()
+        check(stack.activeID != before && stack.queue.isEmpty && stack.stacks.count == 2, "New Stack starts an empty one in use, the last stays listed")
+        check(stack.active?.name == "Stack 2", "new stacks are numbered after the ones there (\(stack.active?.name ?? "none"))")
+        stack.add("for the new stack")
+        if let before { stack.activate(before) }
+        check(stack.activeID == before && stack.queue.count == 8, "Use This Stack switches back, nothing replaced (\(stack.queue.count) lines)")
+        stack.newStack()
+        stack.activate(before!)
+        check(stack.stacks.count == 2, "an empty stack you left isn't kept in the list")
+
+        stack.clear()
+        check(stack.queue.isEmpty && stack.pins.count == 2, "Clear empties the stack in use, pins stay")
+        print(failures == 0 ? "all passed" : "\(failures) failed")
+        exit(failures == 0 ? 0 : 1)
+    }
+    dispatchMain()
 } else if arguments.contains("--focus-probe") {
     // What each open app has selected, and whether a dictation would be pasted there or put in the
     // stack. Read-only: nothing is focused, typed or copied.

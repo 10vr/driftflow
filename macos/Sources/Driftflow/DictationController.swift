@@ -170,7 +170,10 @@ final class DictationController: ObservableObject {
         settings.$historyRetention
             .dropFirst()
             .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
-            .sink { _ in HistoryStore.shared.prune() }
+            .sink { _ in
+                HistoryStore.shared.prune()
+                DictationStack.shared.prune()
+            }
             .store(in: &cancellables)
         settings.$vocabulary
             .dropFirst()

@@ -129,15 +129,19 @@ struct NamedStack: Identifiable, Codable, Equatable {
     var name: String
     let created: Date
     var items: [StackItem] = []
+    /// When its lines or name last changed, or it was last put in use (for keeping it).
+    var changed: Date?
 
     var joined: String { items.map(\.text).joined(separator: " ") }
+    var lastChanged: Date { changed ?? created }
 }
 
 /// Your stacks, and the one in use: the floating stack at the bottom right, which new dictations
 /// go into (from the pill's stack button, in Stack Mode, or when there was nowhere to paste).
 /// Each keeps its lines in the order you said them until you use or remove them (an 11th pushes
 /// the oldest out). Pinned lines (up to 5) are shared by every stack: reused, not used up.
-/// Kept on this Mac next to History, across restarts; only in memory when History is off.
+/// Kept on this Mac next to History, across restarts, for as long as History keeps dictations,
+/// counted from each stack's last change (pins never expire); only in memory when History is off.
 @MainActor
 final class DictationStack: ObservableObject {
     static let shared = DictationStack()
@@ -174,6 +178,17 @@ final class DictationStack: ObservableObject {
         stacks = stored.stacks
         activeID = stored.activeID
         loading = false
+        prune()
+    }
+
+    /// Stacks left unchanged for as long as History keeps dictations are removed. Pins stay; with
+    /// History off, stacks are only kept while Driftflow runs, so nothing is removed early.
+    func prune() {
+        guard let interval = AppSettings.shared.historyRetention.interval, interval > 0 else { return }
+        let cutoff = Date().addingTimeInterval(-interval)
+        guard stacks.contains(where: { $0.lastChanged < cutoff }) else { return }
+        stacks.removeAll { $0.lastChanged < cutoff }
+        if let activeID, !stacks.contains(where: { $0.id == activeID }) { self.activeID = stacks.last?.id }
     }
 
     /// The stack in use.
@@ -196,6 +211,7 @@ final class DictationStack: ObservableObject {
 
     @discardableResult
     func add(_ text: String) -> UUID {
+        prune()
         let item = StackItem(text: text, added: Date())
         changeActive { lines in
             lines.append(item)
@@ -213,6 +229,7 @@ final class DictationStack: ObservableObject {
         pins.removeAll { $0.id == id }
         for index in stacks.indices where stacks[index].items.contains(where: { $0.id == id }) {
             stacks[index].items.removeAll { $0.id == id }
+            stacks[index].changed = Date()
         }
     }
 
@@ -262,6 +279,7 @@ final class DictationStack: ObservableObject {
     func moveLines(in stackID: UUID, from source: IndexSet, to destination: Int) {
         guard let index = stacks.firstIndex(where: { $0.id == stackID }) else { return }
         stacks[index].items.move(fromOffsets: source, toOffset: destination)
+        stacks[index].changed = Date()
     }
 
     func movePins(from source: IndexSet, to destination: Int) {
@@ -285,7 +303,8 @@ final class DictationStack: ObservableObject {
 
     /// Use This Stack: it becomes the floating stack, and new dictations go into it.
     func activate(_ id: UUID) {
-        guard stacks.contains(where: { $0.id == id }) else { return }
+        guard let index = stacks.firstIndex(where: { $0.id == id }) else { return }
+        stacks[index].changed = Date()
         activeID = id
         pruneEmpty()
         hidden = false
@@ -295,6 +314,7 @@ final class DictationStack: ObservableObject {
     func rename(_ id: UUID, to name: String) {
         guard let index = stacks.firstIndex(where: { $0.id == id }) else { return }
         stacks[index].name = name
+        stacks[index].changed = Date()
     }
 
     /// Deleting the stack in use moves you to the newest other one (or a fresh one on next use).
@@ -332,6 +352,7 @@ final class DictationStack: ObservableObject {
         }
         guard let index = stacks.firstIndex(where: { $0.id == activeID }) else { return }
         change(&stacks[index].items)
+        stacks[index].changed = Date()
     }
 
     /// Empty stacks other than the one in use aren't worth keeping in the list.
@@ -482,6 +503,7 @@ final class StackPanel {
 
     /// Something just went in: bring the tab to the screen you're working on and show it clearly.
     func itemAdded() {
+        guard NSApp != nil else { return } // `--stack-test`: no app, nothing to show
         refresh()
         place(on: nil)
         peekWork?.cancel()

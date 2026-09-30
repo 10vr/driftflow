@@ -39,7 +39,7 @@ struct StacksPane: View {
                     Section("Stacks") {
                         ForEach(store.stacks.reversed()) { stack in
                             StackListRow(name: stack.name,
-                                         detail: "\(lines(stack.items.count)) · \(stack.created.formatted(.relative(presentation: .named)))",
+                                         detail: "\(lines(stack.items.count)) · \(stack.lastChanged.formatted(.relative(presentation: .named)))",
                                          icon: "rectangle.stack", inUse: stack.id == store.activeID,
                                          selected: current == .stack(stack.id))
                                 .tag(Selection.stack(stack.id))
@@ -86,7 +86,10 @@ struct StacksPane: View {
             }
             .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onAppear { if selection == nil { selection = current } }
+        .onAppear {
+            store.prune()
+            if selection == nil { selection = current }
+        }
     }
 
     /// The selected stack, or the one in use.
@@ -149,6 +152,16 @@ private struct StackDetail: View {
     @ObservedObject var store: DictationStack
     let delete: () -> Void
 
+    /// " · kept 30 days after its last change", when History (and so stacks) isn't kept forever.
+    private var keptFor: String {
+        switch AppSettings.shared.historyRetention {
+        case .day: " · kept 1 day after its last change"
+        case .week: " · kept 7 days after its last change"
+        case .month: " · kept 30 days after its last change"
+        case .off, .forever: ""
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
@@ -158,7 +171,7 @@ private struct StackDetail: View {
                         .font(.title2.weight(.semibold))
                         .help("Rename this stack")
                     Text(inUse ? "In use: it's the floating stack at the bottom right, and new dictations go into it."
-                         : "\(stack.items.count == 1 ? "1 line" : "\(stack.items.count) lines") · started \(stack.created.formatted(date: .abbreviated, time: .shortened))")
+                         : "\(stack.items.count == 1 ? "1 line" : "\(stack.items.count) lines") · last changed \(stack.lastChanged.formatted(date: .abbreviated, time: .shortened))\(keptFor)")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
