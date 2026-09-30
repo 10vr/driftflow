@@ -42,7 +42,7 @@
 
 Mac-only for now:
 
-- **The Stack.** Dictate now, paste later. Dictations wait in a small stack at the corner of your screen until you click or drag them where they belong, and nothing is lost when there's no text box to type into. [More below](#the-stack).
+- **The Stack.** Dictate now, paste later. Dictations wait in a small stack at the corner of your screen until you click or drag them where they belong, and nothing is lost when there's no text box to type into (in most apps). [More below](#the-stack).
 - **AI Styles.** Apple's on-device model can tidy your dictation into Clean, Professional or Casual writing, with per-app and per-website rules (macOS 26 with Apple Intelligence).
 - **Edit by voice.** Select text, press ⌃⌥E and say what to change: "make this shorter", "turn this into bullet points" (macOS 26 with Apple Intelligence).
 - **Voice commands and snippets.** "New line", "new paragraph", "scratch that", and saved text you insert by saying a phrase.
@@ -57,7 +57,7 @@ Sometimes you want to say something before you know where it goes, or you've cli
 </p>
 
 - **Send a dictation to the stack.** Hold **Right ⌘ + ⌃** while you speak (you can pick another key in Settings › Shortcuts), or click the stack button on the pill.
-- **Never lose one.** If there's no text box where you're dictating, the text goes into the stack instead of disappearing.
+- **Never lose one.** If there's no text box where you're dictating, the text goes into the stack instead of disappearing. (Chrome, Brave and other Chrome-based browsers accept a paste even with no text box selected, so there it can't tell.)
 - **Stack Mode.** Click the stack's tab to collect every dictation in a row, then paste them together.
 - **Use them anywhere.** Point at the tab to open it. Click a line to paste it where your cursor is, drag it into any app, or drag the tab to drop the whole stack at once.
 - **Pin what you reuse.** Pinned lines stay after you paste them, at the top of every stack (up to 5).
