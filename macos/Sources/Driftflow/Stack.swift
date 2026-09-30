@@ -82,16 +82,32 @@ struct StackItem: Identifiable, Equatable, Codable {
     var id = UUID()
     let text: String
     let added: Date
+    /// Pinned lines stay after you paste them, until you remove them.
+    var pinned = false
+
+    init(text: String, added: Date) {
+        self.text = text
+        self.added = added
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        text = try values.decode(String.self, forKey: .text)
+        added = try values.decode(Date.self, forKey: .added)
+        pinned = try values.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+    }
 }
 
 /// Dictations waiting to be pasted, in the order you said them: ones added from the pill, all of
 /// them in Stack Mode, and ones that had no text box to go into. They stay until you use or remove
 /// them (an 11th pushes the oldest out), across restarts too: kept on this Mac next to History, and
-/// only in memory when History is off.
+/// only in memory when History is off. Pinned lines (up to 5) sit apart: they're reused, not used up.
 @MainActor
 final class DictationStack: ObservableObject {
     static let shared = DictationStack()
     static let capacity = 10
+    static let maxPins = 5
 
     /// Oldest first: pasting them all goes top to bottom.
     @Published private(set) var items: [StackItem] = [] { didSet { save() } }
@@ -111,29 +127,52 @@ final class DictationStack: ObservableObject {
         items = (try? JSONDecoder().decode([StackItem].self, from: data)) ?? []
     }
 
-    /// Everything, in order, as one text (for Paste All and dragging the tab).
-    var joined: String { items.map(\.text).joined(separator: " ") }
+    var pins: [StackItem] { items.filter(\.pinned) }
+    /// The stack proper: what Paste All, dragging the tab and Clear work on.
+    var queue: [StackItem] { items.filter { !$0.pinned } }
+    /// The queue, in order, as one text.
+    var joined: String { queue.map(\.text).joined(separator: " ") }
 
     func add(_ text: String) {
         items.append(StackItem(text: text, added: Date()))
-        if items.count > Self.capacity { items.removeFirst(items.count - Self.capacity) }
+        let queued = queue
+        if queued.count > Self.capacity {
+            let oldest = Set(queued.prefix(queued.count - Self.capacity).map(\.id))
+            items.removeAll { oldest.contains($0.id) }
+        }
         hidden = false // something new went in: show where it went
         used = true
         addedCount += 1
         StackPanel.shared.itemAdded()
     }
 
-    func remove(_ ids: [UUID]) {
-        items.removeAll { ids.contains($0.id) }
+    /// ✕ on a line: gone, pinned or not.
+    func remove(_ id: UUID) {
+        items.removeAll { $0.id == id }
+    }
+
+    /// Pasted or dropped: out of the stack, except pinned lines, which stay for next time.
+    func used(_ ids: [UUID]) {
+        items.removeAll { !$0.pinned && ids.contains($0.id) }
     }
 
     /// After Paste Last Dictation used the newest dictation, it's no longer waiting.
-    func remove(text: String) {
-        guard let item = items.last(where: { $0.text == text }) else { return }
-        remove([item.id])
+    func used(text: String) {
+        guard let item = queue.last(where: { $0.text == text }) else { return }
+        used([item.id])
     }
 
-    func clear() { items = [] }
+    /// Returns false when there are already `maxPins` pins.
+    @discardableResult
+    func togglePin(_ id: UUID) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        if !items[index].pinned, pins.count >= Self.maxPins { return false }
+        items[index].pinned.toggle()
+        return true
+    }
+
+    /// Clear: empties the stack; pins stay.
+    func clear() { items.removeAll { !$0.pinned } }
 
     /// Hide: off the screen and out of Stack Mode, with everything kept.
     func hide() {
@@ -184,8 +223,10 @@ final class StackPanelState: ObservableObject {
     @Published var hovered: UUID?
     /// Full strength for a moment after something goes in, even when the tab is faded.
     @Published var peeking = false
-    /// Kept open (Open Stack in the menu) until you click elsewhere.
-    @Published var pinned = false
+    /// Opened from the menu: stays open until you click elsewhere or close it.
+    @Published var keptOpen = false
+    /// The lines' natural height, to scroll only when they don't fit.
+    @Published var linesHeight: CGFloat = 0
     /// Frames in the panel, reported by SwiftUI: each line (for hover) and the tab.
     var rowFrames: [UUID: CGRect] = [:]
     var tabRect: CGRect = .zero
@@ -198,7 +239,8 @@ final class StackPanelState: ObservableObject {
 /// list, and using it never takes the focus away from the text box you're in.
 ///
 /// It opens when the pointer rests on the tab (not when it brushes past), stays open a second
-/// after the pointer leaves (small slips don't count), and closes at once when you click elsewhere.
+/// after the pointer leaves (small slips don't count), and closes at once when you click elsewhere,
+/// press Esc or click ✕.
 @MainActor
 final class StackPanel {
     static let shared = StackPanel()
@@ -216,6 +258,8 @@ final class StackPanel {
 
     private static let openAfter: TimeInterval = 0.15
     private static let closeAfter: TimeInterval = 1.0
+
+    var isOpen: Bool { state.expanded }
 
     func start() {
         guard cancellables.isEmpty else { return }
@@ -249,25 +293,41 @@ final class StackPanel {
         stack.show()
         if stack.items.isEmpty { stack.refillFromHistory() }
         guard !stack.items.isEmpty || AppSettings.shared.stackMode else { return }
-        state.pinned = true
+        state.keptOpen = true
         refresh()
         place(on: nil)
     }
 
+    /// ✕ or Esc: the list closes; the stack and its tab stay.
+    func close() {
+        guard state.expanded else { return }
+        state.keptOpen = false
+        state.expanded = false
+        state.hovered = nil
+        leftAt = nil
+        onTabSince = nil
+        panel?.ignoresMouseEvents = true
+        track(fast: false)
+        if AppSettings.shared.stackTab == .hidden { refresh() }
+    }
+
+    /// Hide Stack (right-click on the tab): the tab goes away and Stack Mode turns off; everything is kept.
     func hide() {
-        state.pinned = false
+        state.keptOpen = false
         DictationStack.shared.hide()
+        DictationController.shared.showToast(HUDToast(icon: "rectangle.stack",
+                                                      text: "Stack hidden, with everything in it. Open Stack in the menu bar brings it back."), for: 4)
     }
 
     private var wanted: Bool {
         let stack = DictationStack.shared, settings = AppSettings.shared
         guard !stack.hidden, stack.used || !stack.items.isEmpty || settings.stackMode else { return false }
-        return settings.stackTab != .hidden || state.pinned
+        return settings.stackTab != .hidden || state.keptOpen
     }
 
     private func refresh() {
         guard wanted else {
-            state.pinned = false
+            state.keptOpen = false
             state.expanded = false
             panel?.orderOut(nil)
             timer?.invalidate()
@@ -275,7 +335,7 @@ final class StackPanel {
             return
         }
         guard panel?.isVisible != true else {
-            if state.pinned { track(fast: true) }
+            if state.keptOpen { track(fast: true) }
             return
         }
         let panel = panel ?? makePanel()
@@ -283,7 +343,7 @@ final class StackPanel {
         place(on: nil)
         panel.appearance = HUDController.systemAppearance
         panel.orderFrontRegardless()
-        track(fast: state.pinned)
+        track(fast: state.keptOpen)
     }
 
     func place(on screen: NSScreen?) {
@@ -324,15 +384,15 @@ final class StackPanel {
                 if inside { leftAt = nil } else if leftAt == nil { leftAt = now }
                 if pressed, !pressStartedInside {
                     // A click somewhere else: close now.
-                    state.pinned = false
+                    state.keptOpen = false
                     open = false
                 } else {
                     // Dragging a line (or the tab) out keeps it open until the drop.
-                    open = state.pinned || inside || pressed || now.timeIntervalSince(leftAt ?? now) < Self.closeAfter
+                    open = state.keptOpen || inside || pressed || now.timeIntervalSince(leftAt ?? now) < Self.closeAfter
                 }
             } else {
-                onTabSince = overTab ? (onTabSince ?? now) : nil
-                open = state.pinned || onTabSince.map { now.timeIntervalSince($0) >= Self.openAfter } ?? false
+                onTabSince = overTab && !pressed ? (onTabSince ?? now) : nil
+                open = state.keptOpen || onTabSince.map { now.timeIntervalSince($0) >= Self.openAfter } ?? false
             }
             if !open { leftAt = nil }
         }
@@ -369,6 +429,25 @@ final class StackPanel {
         return panel
     }
 
+    /// Right-click on the tab.
+    func tabMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        func item(_ title: String, _ action: @escaping @MainActor () -> Void) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: #selector(MenuAction.run), keyEquivalent: "")
+            let target = MenuAction(action)
+            item.target = target
+            item.representedObject = target // the menu item doesn't retain its target
+            return item
+        }
+        let mode = item("Stack Mode") { DictationController.shared.toggleStackMode() }
+        mode.state = AppSettings.shared.stackMode ? .on : .off
+        menu.addItem(mode)
+        menu.addItem(.separator())
+        menu.addItem(item("Hide Stack") { StackPanel.shared.hide() })
+        return menu
+    }
+
     // MARK: Demo
 
     /// `--stack-demo <folder>`: the tab and the open list over black and white, captured to PNGs.
@@ -382,12 +461,15 @@ final class StackPanel {
                                 styleMask: .borderless, backing: .buffered, defer: false)
         backdrop.level = .floating
         backdrop.isReleasedWhenClosed = false
-        DictationStack.shared.clear()
-        for text in ["Hi Sarah, just following up on the shoot schedule for tomorrow.",
+        let stack = DictationStack.shared
+        for item in stack.items { stack.remove(item.id) }
+        let many = ProcessInfo.processInfo.environment["DRIFTFLOW_DEMO_MANY"] != nil // a stack long enough to scroll
+        let lines = ["Thanks for your time today, talk soon.",
+                     "Hi Sarah, just following up on the shoot schedule for tomorrow.",
                      "Can we move the Thursday call to ten? The studio is booked until nine thirty, so the crew can set up after that and we still finish the interviews before lunch.",
-                     "Also remind me to send the invoice to Daniel before Friday."] {
-            DictationStack.shared.add(text)
-        }
+                     "Also remind me to send the invoice to Daniel before Friday."]
+        for text in many ? lines + lines.dropFirst() + lines.dropFirst() : lines { stack.add(text) }
+        if let first = stack.items.first { stack.togglePin(first.id) }
         start()
         place(on: screen)
         // The capture region in global top-left coordinates.
@@ -412,7 +494,8 @@ final class StackPanel {
             state.forced = true
             try? await Task.sleep(for: .milliseconds(700))
             DictationController.capture(region, to: directory.appendingPathComponent("\(name)-open.png"))
-            state.hovered = DictationStack.shared.items.dropFirst().first?.id
+            print("lines \(state.linesHeight) pt tall")
+            state.hovered = stack.queue.dropFirst().first?.id
             try? await Task.sleep(for: .milliseconds(400))
             DictationController.capture(region, to: directory.appendingPathComponent("\(name)-hover.png"))
             state.hovered = nil
@@ -423,7 +506,7 @@ final class StackPanel {
         }
         settings.stackTab = saved.0
         settings.stackMode = saved.1
-        if saved.2 { DictationStack.shared.hide() }
+        if saved.2 { stack.hide() }
         NSApp.terminate(nil)
     }
 }
@@ -454,11 +537,18 @@ private struct StackRowFramesKey: PreferenceKey {
     }
 }
 
+private struct StackLinesHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 struct StackView: View {
     @ObservedObject var stack: DictationStack
     @ObservedObject var state: StackPanelState
     @ObservedObject var settings: AppSettings
     let reportHitRect: (CGRect) -> Void
+    /// Taller than this, the lines scroll.
+    private let maxLinesHeight: CGFloat = 470
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -477,6 +567,9 @@ struct StackView: View {
         .onPreferenceChange(StackHitRectKey.self) { reportHitRect($0) }
         .onPreferenceChange(StackTabRectKey.self) { state.tabRect = $0 }
         .onPreferenceChange(StackRowFramesKey.self) { state.rowFrames = $0 }
+        .onPreferenceChange(StackLinesHeightKey.self) { height in
+            if abs(height - state.linesHeight) > 0.5 { state.linesHeight = height }
+        }
         .animation(.spring(response: 0.3, dampingFraction: 0.88), value: state.expanded)
         .animation(.spring(response: 0.3, dampingFraction: 0.88), value: stack.items)
         .animation(.easeOut(duration: 0.12), value: state.hovered)
@@ -486,15 +579,16 @@ struct StackView: View {
     private var faded: Bool { settings.stackTab == .faded && !state.expanded && !state.peeking && !settings.stackMode }
 
     private var tab: some View {
-        HStack(spacing: 6) {
+        let count = stack.queue.count
+        return HStack(spacing: 6) {
             Image(systemName: "rectangle.stack.fill")
                 .foregroundStyle(Brand.violet)
                 .symbolEffect(.bounce, value: stack.addedCount)
             Group {
                 if settings.stackMode {
-                    Text(stack.items.isEmpty ? "Stacking" : "Stacking · \(stack.items.count)")
-                } else {
-                    Text("\(stack.items.count)")
+                    Text(count == 0 ? "Stacking" : "Stacking · \(count)")
+                } else if count > 0 {
+                    Text("\(count)")
                 }
             }
             .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -506,11 +600,12 @@ struct StackView: View {
         .modifier(Capsule().surface(tint: settings.stackMode ? Brand.violet.opacity(0.22) : nil))
         .shadow(color: .black.opacity(faded ? 0 : 0.16), radius: 10, y: 4)
         .opacity(faded ? 0.4 : 1)
-        // Click: Stack Mode on or off. Drag: drop everything, in order.
+        // Click: Stack Mode on or off. Drag: drop the whole stack, in order. Right-click: Hide Stack.
         .overlay {
-            StackDragSource(text: stack.joined, preview: stack.items.count == 1 ? stack.items[0].text : "\(stack.items.count) dictations",
+            StackDragSource(text: stack.joined, preview: count == 1 ? stack.joined : "\(count) dictations",
                             onClick: { DictationController.shared.toggleStackMode() },
-                            onDropped: { [ids = stack.items.map(\.id)] in DictationStack.shared.remove(ids) })
+                            onDropped: { [ids = stack.queue.map(\.id)] in DictationStack.shared.used(ids) },
+                            menu: { StackPanel.shared.tabMenu() })
         }
         .background(frame(StackTabRectKey.self))
     }
@@ -520,22 +615,17 @@ struct StackView: View {
             HStack(spacing: 6) {
                 Text(settings.stackMode ? "Stacking" : "Stack")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                if !stack.items.isEmpty {
-                    Text("\(stack.items.count)")
+                if !stack.queue.isEmpty {
+                    Text("\(stack.queue.count)")
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if !stack.items.isEmpty {
-                    pillButton("Clear", help: "Empty the stack") { DictationStack.shared.clear() }
-                }
-                pillButton("Hide", help: "Put the stack away (Stack Mode turns off). Open Stack in the menu brings everything back.") {
-                    StackPanel.shared.hide()
-                }
+                iconButton("xmark", help: "Close (Esc)") { StackPanel.shared.close() }
             }
             .padding(.leading, 10)
-            .padding(.trailing, 4)
-            .padding(.bottom, 6)
+            .padding(.trailing, 2)
+            .padding(.bottom, 4)
 
             if stack.items.isEmpty {
                 Text("New dictations stack up here.")
@@ -544,29 +634,33 @@ struct StackView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 14)
             } else {
-                // Everything at full length; it scrolls only once it's taller than the space.
-                ScrollView {
-                    TimelineView(.periodic(from: .now, by: 30)) { context in rows(now: context.date) }
+                // Everything at full length; it only becomes a scrolling list once it doesn't fit,
+                // so no scroll bar shows (or flashes) when there's nothing to scroll.
+                if state.linesHeight > maxLinesHeight {
+                    ScrollView { lines }
+                        .frame(height: maxLinesHeight)
+                } else {
+                    lines
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: 470)
-                .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack {
-                Text(stack.items.isEmpty ? "" : "Click or drag a line")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if stack.items.count > 1 {
-                    pillButton("Paste All", help: "Paste them all at your cursor, top to bottom. Or drag the tab into a text box.") {
-                        DictationController.shared.pasteAllFromStack()
+            if !stack.queue.isEmpty {
+                HStack(spacing: 8) {
+                    textButton("Clear", help: "Empty the stack (pinned lines stay)") { DictationStack.shared.clear() }
+                    Text("Click or drag a line")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                    if stack.queue.count > 1 {
+                        textButton("Paste All", help: "Paste the stack at your cursor, top to bottom (pinned lines aren't included). Or drag the tab into a text box.") {
+                            DictationController.shared.pasteAllFromStack()
+                        }
                     }
                 }
+                .padding(.leading, 4)
+                .padding(.trailing, 4)
+                .padding(.top, 6)
             }
-            .padding(.leading, 10)
-            .padding(.trailing, 4)
-            .padding(.top, 6)
         }
         .padding(8)
         .frame(width: 370)
@@ -574,43 +668,71 @@ struct StackView: View {
         .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
     }
 
-    private func rows(now: Date) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(stack.items.enumerated()), id: \.element.id) { index, item in
-                row(item, number: index + 1, now: now)
+    private var lines: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            VStack(alignment: .leading, spacing: 2) {
+                let pins = stack.pins, queue = stack.queue
+                if !pins.isEmpty {
+                    sectionLabel("Pinned")
+                    ForEach(pins) { row($0, number: nil, now: context.date) }
+                    if !queue.isEmpty {
+                        Divider().padding(.horizontal, 10).padding(.vertical, 4)
+                    }
+                }
+                ForEach(Array(queue.enumerated()), id: \.element.id) { index, item in
+                    row(item, number: index + 1, now: context.date)
+                }
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: StackLinesHeightKey.self, value: proxy.size.height)
+        })
     }
 
-    private func row(_ item: StackItem, number: Int, now: Date) -> some View {
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.top, 2)
+            .padding(.bottom, 2)
+    }
+
+    private func row(_ item: StackItem, number: Int?, now: Date) -> some View {
         let hovered = state.hovered == item.id
         return HStack(alignment: .top, spacing: 8) {
-            Text("\(number)")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(Brand.violet)
-                .frame(minWidth: 14, alignment: .trailing)
-                .padding(.top, 2)
+            Group {
+                if let number {
+                    Text("\(number)")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                } else {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9, weight: .bold))
+                }
+            }
+            .foregroundStyle(Brand.violet)
+            .frame(minWidth: 14, alignment: .trailing)
+            .padding(.top, 2)
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.text)
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(DictationStack.age(of: item, now: now))
+                Text(item.pinned ? "stays after you paste it" : DictationStack.age(of: item, now: now))
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button {
-                DictationStack.shared.remove([item.id])
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
-                    .contentShape(.rect)
+            HStack(spacing: 0) {
+                iconButton(item.pinned ? "pin.slash" : "pin", help: item.pinned ? "Unpin" : "Pin: keep it after you paste it") {
+                    if !DictationStack.shared.togglePin(item.id) {
+                        DictationController.shared.showToast(HUDToast(icon: "pin", text: "You can pin up to \(DictationStack.maxPins) lines. Unpin one first."), for: 3)
+                    }
+                }
+                .opacity(hovered ? 1 : 0)
+                iconButton("xmark", help: "Remove") { DictationStack.shared.remove(item.id) }
             }
-            .buttonStyle(.plain)
-            .help("Remove from the stack")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -618,19 +740,31 @@ struct StackView: View {
             RoundedRectangle(cornerRadius: 11, style: .continuous)
                 .fill(Brand.violet.opacity(hovered ? 0.14 : 0))
         }
-        // Click or drag anywhere on the line except ✕.
+        // Click or drag anywhere on the line except its buttons.
         .overlay(alignment: .leading) {
             StackDragSource(text: item.text, preview: item.text,
                             onClick: { DictationController.shared.paste(fromStack: item) },
-                            onDropped: { DictationStack.shared.remove([item.id]) })
-                .padding(.trailing, 30)
+                            onDropped: { DictationStack.shared.used([item.id]) })
+                .padding(.trailing, 52)
         }
         .background(GeometryReader { proxy in
             Color.clear.preference(key: StackRowFramesKey.self, value: [item.id: proxy.frame(in: .named("stack"))])
         })
     }
 
-    private func pillButton(_ title: String, help: String, action: @escaping () -> Void) -> some View {
+    private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private func textButton(_ title: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 11.5, weight: .semibold, design: .rounded))
@@ -650,14 +784,15 @@ struct StackView: View {
     }
 }
 
-/// Clicking pastes (or, on the tab, keeps the list open); dragging drops the text wherever you let
-/// go, in any app. In AppKit, because only a dragging source learns whether the drop was taken, and
+/// Clicking pastes (on the tab: switches Stack Mode); dragging drops the text wherever you let go,
+/// in any app. In AppKit, because only a dragging source learns whether the drop was taken, and
 /// what was dropped somewhere should leave the stack.
 private struct StackDragSource: NSViewRepresentable {
     let text: String
     let preview: String
     let onClick: () -> Void
     let onDropped: () -> Void
+    var menu: (() -> NSMenu)?
 
     func makeNSView(context: Context) -> StackDragView { StackDragView() }
 
@@ -666,6 +801,7 @@ private struct StackDragSource: NSViewRepresentable {
         view.preview = preview
         view.onClick = onClick
         view.onDropped = onDropped
+        view.makeMenu = menu
     }
 }
 
@@ -674,13 +810,21 @@ final class StackDragView: NSView, NSDraggingSource {
     var preview = ""
     var onClick: () -> Void = {}
     var onDropped: () -> Void = {}
+    var makeMenu: (() -> NSMenu)?
     private var downAt: NSPoint?
     private var dragging = false
 
     // The panel never becomes key: the first click has to count.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
+
     override func mouseDown(with event: NSEvent) {
+        // Control-click is a right-click.
+        if event.modifierFlags.contains(.control), let menu = makeMenu?() {
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return
+        }
         downAt = event.locationInWindow
         dragging = false
     }

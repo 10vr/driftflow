@@ -206,7 +206,7 @@ private struct GeneralPane: View {
             } header: {
                 Text("Stack")
             } footer: {
-                Text("Dictations you add with the stack button on the pill, every dictation in Stack Mode, and any that had no text box to go into wait at the bottom right of the screen, in order, until you use them. Click one to paste it, drag it into a text box, or drag the stack's tab to drop them all. Open Stack in the menu bar menu brings it back after Hide.")
+                Text("Dictations you add with the stack button on the pill, every dictation in Stack Mode, and any that had no text box to go into wait at the bottom right of the screen, in order, until you use them. Point at the stack's tab to see them: click one to paste it, drag it into a text box, or pin it to keep it after pasting. Click the tab to turn Stack Mode on or off, drag it to drop the whole stack, or right-click it to hide it (Open Stack in the menu bar menu brings it back).")
                     .foregroundStyle(.secondary)
             }
 

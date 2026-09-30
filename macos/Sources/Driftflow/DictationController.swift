@@ -380,6 +380,7 @@ final class DictationController: ObservableObject {
     // MARK: Trigger
 
     private func otherKeyDown(_ keyCode: UInt16) {
+        if keyCode == UInt16(kVK_Escape) { StackPanel.shared.close() }
         handle(.otherKey(isEscape: keyCode == UInt16(kVK_Escape), triggerHeld: hotkeys.isDown))
     }
 
@@ -439,7 +440,7 @@ final class DictationController: ObservableObject {
                 try? await Task.sleep(for: .milliseconds(250)) // let the menu close first
             }
             if inserter.insert(last.text, method: settings.insertionMethod, restoreClipboard: settings.restoreClipboard) == .inserted {
-                DictationStack.shared.remove(text: last.text)
+                DictationStack.shared.used(text: last.text)
             }
         }
     }
@@ -449,9 +450,9 @@ final class DictationController: ObservableObject {
         pasteFromStack(item.text, ids: [item.id])
     }
 
-    /// Paste All: the whole stack at your cursor, top to bottom.
+    /// Paste All: the whole stack at your cursor, top to bottom (pinned lines aren't part of it).
     func pasteAllFromStack() {
-        let items = DictationStack.shared.items
+        let items = DictationStack.shared.queue
         guard !items.isEmpty else { return }
         pasteFromStack(DictationStack.shared.joined, ids: items.map(\.id))
     }
@@ -463,7 +464,7 @@ final class DictationController: ObservableObject {
                 return
             }
             let context = settings.smartSpacing && accessibilityGranted ? await CaretContext.capture() : .unknown
-            if deliver(text, context: context) { DictationStack.shared.remove(ids) }
+            if deliver(text, context: context) { DictationStack.shared.used(ids) }
         }
     }
 

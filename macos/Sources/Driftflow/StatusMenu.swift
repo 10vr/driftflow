@@ -24,15 +24,17 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.$phase
             .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshIcon() } }
             .store(in: &cancellables)
-        DictationStack.shared.$items.map(\.count).removeDuplicates()
-            .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshIcon() } }
+        DictationStack.shared.$items.map(\.count).removeDuplicates().map { _ in () }
+            .merge(with: settings.$stackMode.removeDuplicates().map { _ in () })
+            .sink { [weak self] in DispatchQueue.main.async { self?.refreshIcon() } }
             .store(in: &cancellables)
     }
 
-    /// How many dictations wait in the stack, next to the icon (so it's findable with the tab hidden).
+    /// In Stack Mode, how many dictations are stacked, next to the icon (a reminder the mode is on,
+    /// even with the tab hidden).
     private func showStackCount() {
         guard let item, let button = item.button else { return }
-        let count = DictationStack.shared.items.count
+        let count = settings.stackMode ? DictationStack.shared.queue.count : 0
         item.length = count > 0 ? NSStatusItem.variableLength : NSStatusItem.squareLength
         button.imagePosition = count > 0 ? .imageLeading : .imageOnly
         button.attributedTitle = NSAttributedString(string: count > 0 ? "\(count)" : "", attributes: [
@@ -271,7 +273,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 }
 
 /// Target for a menu item's closure.
-private final class MenuAction: NSObject {
+final class MenuAction: NSObject {
     private let action: @MainActor () -> Void
 
     init(_ action: @escaping @MainActor () -> Void) {
