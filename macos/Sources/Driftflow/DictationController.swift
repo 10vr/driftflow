@@ -464,7 +464,35 @@ final class DictationController: ObservableObject {
                 return
             }
             let context = settings.smartSpacing && accessibilityGranted ? await CaretContext.capture() : .unknown
-            if deliver(text, context: context) { DictationStack.shared.used(ids) }
+            guard deliver(text, context: context) else { return }
+            if await inserter.waitUntilPasteTaken(timeout: .seconds(1)) == false {
+                // Nothing took it: it stays in the stack (unless the app takes it after all).
+                inserter.onPasteTaken = { DictationStack.shared.used(ids) }
+                showToast(HUDToast(icon: "character.cursor.ibeam", text: "Click into a text box first, then choose it again."), for: 3)
+                return
+            }
+            DictationStack.shared.used(ids)
+        }
+    }
+
+    /// Apps that don't say whether a text box is selected (Chrome, Electron apps like Slack or VS
+    /// Code) are pasted into regardless. If nothing takes the paste within a second, there was no
+    /// text box: the dictation goes into the stack instead of being lost, and comes back out if the
+    /// app takes it late after all.
+    private func catchUntakenPaste(_ text: String) {
+        Task {
+            guard await inserter.waitUntilPasteTaken(timeout: .seconds(1)) == false else { return }
+            let id = DictationStack.shared.add(text)
+            AppLog.info("Nothing took the paste within a second: put it in the stack")
+            let notice = HUDToast(icon: "rectangle.stack", text: settings.stackTab == .hidden
+                ? "Nothing to paste into here, so it's in your stack (in the menu bar)."
+                : "Nothing to paste into here, so it's in your stack.")
+            showToast(notice, for: 4)
+            inserter.onPasteTaken = { [weak self] in
+                DictationStack.shared.remove(id)
+                if self?.toast?.id == notice.id { self?.dismissToast() }
+                AppLog.info("The paste was taken late after all: out of the stack again")
+            }
         }
     }
 
@@ -880,6 +908,7 @@ final class DictationController: ObservableObject {
                     }
                 } else {
                     inserted = deliver(text, context: context)
+                    if inserted { catchUntakenPaste(text) }
                 }
                 let latency = Self.milliseconds(clock.now - releasedAt)
                 // Length and timing only: what was said is never logged.

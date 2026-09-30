@@ -133,8 +133,10 @@ final class DictationStack: ObservableObject {
     /// The queue, in order, as one text.
     var joined: String { queue.map(\.text).joined(separator: " ") }
 
-    func add(_ text: String) {
-        items.append(StackItem(text: text, added: Date()))
+    @discardableResult
+    func add(_ text: String) -> UUID {
+        let item = StackItem(text: text, added: Date())
+        items.append(item)
         let queued = queue
         if queued.count > Self.capacity {
             let oldest = Set(queued.prefix(queued.count - Self.capacity).map(\.id))
@@ -144,6 +146,7 @@ final class DictationStack: ObservableObject {
         used = true
         addedCount += 1
         StackPanel.shared.itemAdded()
+        return item.id
     }
 
     /// ✕ on a line: gone, pinned or not.

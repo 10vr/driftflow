@@ -48,6 +48,12 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
     private var remoteViewerRead = false
     /// `--scratch-test` only: deliver keystrokes to this process instead of the focused app.
     var testTargetPID: pid_t?
+    /// Whether the app took the last paste (it reads the promised text when it really pastes):
+    /// nil when that can't be told (typed text, a remote desktop, or your clipboard not restored).
+    private(set) var pasteTaken: Bool?
+    private var pasteCount = 0
+    /// Called when the app reads the last paste's text, however late.
+    var onPasteTaken: (() -> Void)?
 
     func insert(_ text: String, method: InsertionMethod, restoreClipboard: Bool) -> Outcome {
         guard Permissions.accessibilityGranted else {
@@ -133,6 +139,9 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
         restoreNow() // a previous paste still waiting to restore gives the clipboard back first
         pastingRemotely = Self.frontmostIsRemoteDesktop
         remoteViewerRead = false
+        pasteCount += 1
+        pasteTaken = restoreClipboard && !pastingRemotely ? false : nil
+        onPasteTaken = nil
 
         if restoreClipboard {
             savedItems = snapshot()
@@ -213,6 +222,11 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
                 }
                 // The app has the text. It may ask for more representations within the same paste,
                 // so give it a moment before handing the clipboard back.
+                if self.pasteTaken == false {
+                    self.pasteTaken = true
+                    self.onPasteTaken?()
+                    self.onPasteTaken = nil
+                }
                 self.scheduleRestore(after: 0.12)
             }
         }
@@ -278,7 +292,20 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
         "com.brave.Browser", "org.mozilla.firefox", "com.operasoftware.Opera", "com.vivaldi.Vivaldi",
     ]
 
+    /// Waits (up to `timeout`) for the app to take the last paste. nil: there's no telling.
+    func waitUntilPasteTaken(timeout: Duration) async -> Bool? {
+        let paste = pasteCount
+        let deadline = ContinuousClock.now + timeout
+        while pasteTaken == false, pasteCount == paste, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return pasteCount == paste ? pasteTaken : nil
+    }
+
     private func type(_ text: String) {
+        pasteCount += 1
+        pasteTaken = nil
+        onPasteTaken = nil
         let inChat = NSWorkspace.shared.frontmostApplication?.bundleIdentifier.map(Self.chatApps.contains) ?? false
         let lines = text.components(separatedBy: "\n")
         for (index, line) in lines.enumerated() {
