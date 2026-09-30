@@ -58,7 +58,7 @@ final class FileTranscriber: ObservableObject {
     private let writeQueue = DispatchQueue(label: "driftflow.transcripts", qos: .utility)
 
     /// Formats macOS can't decode itself but ffmpeg can.
-    static let ffmpegExtensions: Set<String> = ["ogg", "oga", "opus", "webm", "mkv", "mka", "wma", "wmv", "avi",
+    nonisolated static let ffmpegExtensions: Set<String> = ["ogg", "oga", "opus", "webm", "mkv", "mka", "wma", "wmv", "avi",
                                                 "flv", "spx", "ape", "wv", "ra", "rm", "amr", "3gp", "ts", "mts"]
 
     private init() {

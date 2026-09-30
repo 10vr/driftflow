@@ -168,12 +168,18 @@ enum TranscriptBuilder {
 /// when it's installed.
 enum AudioDecoder {
     enum DecodeError: LocalizedError {
+        case missing
         case noAudio
+        /// A format macOS reads, but not this file.
+        case unreadable(String)
+        /// A format only ffmpeg reads, and it isn't installed.
         case unsupported(String)
 
         var errorDescription: String? {
             switch self {
+            case .missing: "The file isn't there any more. It may have been moved, renamed or deleted."
             case .noAudio: "This file has no audio track."
+            case .unreadable(let ext): "This file couldn't be read. It may be damaged, or not really a .\(ext) file."
             case .unsupported(let ext):
                 "macOS can't decode .\(ext) files. Install ffmpeg (brew install ffmpeg) to open them, or convert the file to MP3, M4A or WAV."
             }
@@ -196,10 +202,15 @@ enum AudioDecoder {
 
     /// Opens `url` for reading 16 kHz mono blocks, via AVFoundation or, failing that, ffmpeg.
     static func open(_ url: URL) async throws -> AudioBlockReader {
+        guard FileManager.default.fileExists(atPath: url.path) else { throw DecodeError.missing }
         // DRIFTFLOW_ASSET_READER=1 skips the audio-file reader, to test the video path with any file.
         if ProcessInfo.processInfo.environment["DRIFTFLOW_ASSET_READER"] != "1", let reader = AudioFileBlockReader(url) { return reader }
         if let reader = try await AssetBlockReader.open(url) { return reader }
-        guard let ffmpeg = ffmpegPath else { throw DecodeError.unsupported(url.pathExtension.lowercased()) }
+        guard let ffmpeg = ffmpegPath else {
+            let ext = url.pathExtension.lowercased()
+            let needsFFmpeg = FileTranscriber.ffmpegExtensions.contains(ext) && !(readsOgg && ["ogg", "oga", "opus"].contains(ext))
+            throw needsFFmpeg ? DecodeError.unsupported(ext) : DecodeError.unreadable(ext)
+        }
         return try FFmpegBlockReader(ffmpeg: ffmpeg, url: url)
     }
 
@@ -608,7 +619,10 @@ enum FileTranscription {
             for helper in await helpers() {
                 group.addTask { @MainActor in try await transcribeChunks(with: helper) }
             }
-            try await group.waitForAll()
+            // Stop at the first failure (a file that can't be read, a model change): leaving the
+            // group cancels the rest. (waitForAll would wait for them first, and the transcribers
+            // would wait forever for chunks the failed reader never cuts.)
+            for try await _ in group {}
         }
         return TranscriptBuilder.segments(from: queue.words.flatMap { $0 ?? [] })
     }
