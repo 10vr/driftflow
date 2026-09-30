@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.21</title>
+            <pubDate>Wed, 30 Sep 2026 10:40:09 GMT</pubDate>
+            <sparkle:version>202609301839</sparkle:version>
+            <sparkle:shortVersionString>0.2.21</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>A stack now holds 20 lines, and you can choose how many (5 to 200) in Settings › General › Stack.</p><p>When a full stack pushes its oldest line out, a message tells you. The line is still in History.</p><p>Settings › General › Stack has New Stack and All Stacks buttons.</p><p>On the Stacks page, drag a line onto another stack (or onto Pinned) to move it there, or right-click it and choose Move To.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.21/Driftflow-0.2.21-macOS.zip" type="application/octet-stream" sparkle:edSignature="FpL3DJ3JOMh77OiSM5FSLK4s4tJcwGv3YVobAvZu9s2kyhaeHSkFzmfWGF8hsruoc2ZvzVfg7ql2Hn2G9m2XBQ==" length="13868083"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.20</title>
             <pubDate>Wed, 30 Sep 2026 10:00:24 GMT</pubDate>
             <sparkle:version>202609301800</sparkle:version>
