@@ -120,38 +120,67 @@ struct StackItem: Identifiable, Equatable, Codable {
     }
 }
 
-/// Dictations waiting to be pasted, in the order you said them: ones added from the pill, all of
-/// them in Stack Mode, and ones that had no text box to go into. They stay until you use or remove
-/// them (an 11th pushes the oldest out), across restarts too: kept on this Mac next to History, and
-/// only in memory when History is off. Pinned lines (up to 5) sit apart: they're reused, not used up.
+/// One stack of dictations, e.g. "Message to Ali".
+struct NamedStack: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name: String
+    let created: Date
+    var items: [StackItem] = []
+
+    var joined: String { items.map(\.text).joined(separator: " ") }
+}
+
+/// Your stacks, and the one in use: the floating stack at the bottom right, which new dictations
+/// go into (from the pill's stack button, in Stack Mode, or when there was nowhere to paste).
+/// Each keeps its lines in the order you said them until you use or remove them (an 11th pushes
+/// the oldest out). Pinned lines (up to 5) are shared by every stack: reused, not used up.
+/// Kept on this Mac next to History, across restarts; only in memory when History is off.
 @MainActor
 final class DictationStack: ObservableObject {
     static let shared = DictationStack()
     static let capacity = 10
     static let maxPins = 5
 
-    /// Oldest first: pasting them all goes top to bottom.
-    @Published private(set) var items: [StackItem] = [] { didSet { save() } }
+    @Published private(set) var pins: [StackItem] = [] { didSet { save() } }
+    /// Oldest first.
+    @Published private(set) var stacks: [NamedStack] = [] { didSet { save() } }
+    @Published private(set) var activeID: UUID? { didSet { save() } }
     /// Put away with Hide: kept, just not on screen (Open Stack brings it back).
     @Published private(set) var hidden: Bool { didSet { UserDefaults.standard.set(hidden, forKey: "stackHidden") } }
-    /// Once you've used the stack, its tab stays on screen (it's also the Stack Mode switch); before
+    /// Once you've used a stack, its tab stays on screen (it's also the Stack Mode switch); before
     /// that it only appears when something goes in.
-    @Published private(set) var used: Bool { didSet { UserDefaults.standard.set(used, forKey: "stackUsed") } }
+    @Published private(set) var everUsed: Bool { didSet { UserDefaults.standard.set(everUsed, forKey: "stackUsed") } }
     /// Counts additions, so the tab can bounce when something goes in.
     @Published private(set) var addedCount = 0
-    private let fileURL = AppData.directory.appendingPathComponent("stack.json")
+    private let fileURL = AppData.directory.appendingPathComponent("stacks.json")
+    private var loading = false
+
+    private struct Stored: Codable {
+        var pins: [StackItem]
+        var stacks: [NamedStack]
+        var activeID: UUID?
+    }
 
     private init() {
         hidden = UserDefaults.standard.bool(forKey: "stackHidden")
-        used = UserDefaults.standard.bool(forKey: "stackUsed")
-        guard AppSettings.shared.historyRetention != .off, let data = try? Data(contentsOf: fileURL) else { return }
-        items = (try? JSONDecoder().decode([StackItem].self, from: data)) ?? []
+        everUsed = UserDefaults.standard.bool(forKey: "stackUsed")
+        guard AppSettings.shared.historyRetention != .off, let data = try? Data(contentsOf: fileURL),
+              let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return }
+        loading = true
+        pins = stored.pins
+        stacks = stored.stacks
+        activeID = stored.activeID
+        loading = false
     }
 
-    var pins: [StackItem] { items.filter(\.pinned) }
-    /// The stack proper: what Paste All, dragging the tab and Clear work on.
-    var queue: [StackItem] { items.filter { !$0.pinned } }
-    /// What Paste and dragging the tab put in (Settings › Stack, or the ▾ next to Paste).
+    /// The stack in use.
+    var active: NamedStack? { stacks.first { $0.id == activeID } }
+    /// Its lines: what Clear, Stack Mode and the line numbers work on.
+    var queue: [StackItem] { active?.items ?? [] }
+    /// Everything in the floating stack: the pins, then the stack in use.
+    var items: [StackItem] { pins + queue }
+
+    /// What Paste and dragging the tab put in (the ▾ next to Paste, or Settings › Stack).
     var pasteItems: [StackItem] {
         switch AppSettings.shared.stackPaste {
         case .stack: queue
@@ -165,27 +194,29 @@ final class DictationStack: ObservableObject {
     @discardableResult
     func add(_ text: String) -> UUID {
         let item = StackItem(text: text, added: Date())
-        items.append(item)
-        let queued = queue
-        if queued.count > Self.capacity {
-            let oldest = Set(queued.prefix(queued.count - Self.capacity).map(\.id))
-            items.removeAll { oldest.contains($0.id) }
+        changeActive { lines in
+            lines.append(item)
+            if lines.count > Self.capacity { lines.removeFirst(lines.count - Self.capacity) }
         }
         hidden = false // something new went in: show where it went
-        used = true
+        everUsed = true
         addedCount += 1
         StackPanel.shared.itemAdded()
         return item.id
     }
 
-    /// ✕ on a line: gone, pinned or not.
+    /// ✕ on a line: gone, pinned or not, from whichever stack it's in.
     func remove(_ id: UUID) {
-        items.removeAll { $0.id == id }
+        pins.removeAll { $0.id == id }
+        for index in stacks.indices where stacks[index].items.contains(where: { $0.id == id }) {
+            stacks[index].items.removeAll { $0.id == id }
+        }
     }
 
-    /// Pasted or dropped: out of the stack, except pinned lines, which stay for next time.
+    /// Pasted or dropped: out of the stack in use; pinned lines stay for next time.
     func used(_ ids: [UUID]) {
-        items.removeAll { !$0.pinned && ids.contains($0.id) }
+        guard queue.contains(where: { ids.contains($0.id) }) else { return }
+        changeActive { $0.removeAll { ids.contains($0.id) } }
     }
 
     /// After Paste Last Dictation used the newest dictation, it's no longer waiting.
@@ -194,51 +225,80 @@ final class DictationStack: ObservableObject {
         used([item.id])
     }
 
+    /// Pin: a line of the stack in use joins the pins (shared by every stack); unpin: it goes back.
     /// Returns false when there are already `maxPins` pins.
     @discardableResult
     func togglePin(_ id: UUID) -> Bool {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
-        if !items[index].pinned, pins.count >= Self.maxPins { return false }
-        items[index].pinned.toggle()
+        if let pin = pins.first(where: { $0.id == id }) {
+            pins.removeAll { $0.id == id }
+            var line = pin
+            line.pinned = false
+            changeActive { $0.append(line) }
+            return true
+        }
+        guard pins.count < Self.maxPins, var line = queue.first(where: { $0.id == id }) else { return false }
+        line.pinned = true
+        changeActive { $0.removeAll { $0.id == id } }
+        pins.append(line)
         return true
     }
 
-    /// Dragged within the stack: to just above or below another line (of the same kind).
+    /// Dragged within the floating stack: to just above or below another line of the same kind.
     func move(_ id: UUID, to marker: StackDropMarker) {
-        guard id != marker.id, let item = items.first(where: { $0.id == id }) else { return }
-        var reordered = items.filter { $0.id != id }
-        guard let target = reordered.firstIndex(where: { $0.id == marker.id }) else { return }
-        reordered.insert(item, at: marker.above ? target : target + 1)
-        items = reordered
+        guard id != marker.id else { return }
+        func reorder(_ lines: inout [StackItem]) {
+            guard let item = lines.first(where: { $0.id == id }) else { return }
+            lines.removeAll { $0.id == id }
+            guard let target = lines.firstIndex(where: { $0.id == marker.id }) else { return }
+            lines.insert(item, at: marker.above ? target : target + 1)
+        }
+        if pins.contains(where: { $0.id == id }) { reorder(&pins) } else { changeActive(reorder) }
     }
 
     /// The Stacks page: reordering by dragging in its lists.
-    func moveQueue(from source: IndexSet, to destination: Int) {
-        var queue = self.queue
-        queue.move(fromOffsets: source, toOffset: destination)
-        items = pins + queue
+    func moveLines(in stackID: UUID, from source: IndexSet, to destination: Int) {
+        guard let index = stacks.firstIndex(where: { $0.id == stackID }) else { return }
+        stacks[index].items.move(fromOffsets: source, toOffset: destination)
     }
 
     func movePins(from source: IndexSet, to destination: Int) {
-        var pins = self.pins
         pins.move(fromOffsets: source, toOffset: destination)
-        items = pins + queue
     }
 
-    /// Save Stack: the stack's lines leave (to be saved); pins stay.
-    func takeQueue() -> [StackItem] {
-        let taken = queue
-        clear()
-        return taken
+    /// Clear: empties the stack in use; pins stay.
+    func clear() { changeActive { $0.removeAll() } }
+
+    // MARK: Stacks
+
+    /// New Stack: a fresh, empty stack in use; the one before stays in the list.
+    func newStack() {
+        pruneEmpty()
+        let stack = NamedStack(name: nextName(), created: Date())
+        stacks.append(stack)
+        activeID = stack.id
+        hidden = false
+        everUsed = true
     }
 
-    /// Use Again: a saved stack's lines become the stack.
-    func load(_ lines: [StackItem]) {
-        items = pins + lines.map { var line = $0; line.pinned = false; return line }
+    /// Use This Stack: it becomes the floating stack, and new dictations go into it.
+    func activate(_ id: UUID) {
+        guard stacks.contains(where: { $0.id == id }) else { return }
+        activeID = id
+        pruneEmpty()
+        hidden = false
+        everUsed = true
     }
 
-    /// Clear: empties the stack; pins stay.
-    func clear() { items.removeAll { !$0.pinned } }
+    func rename(_ id: UUID, to name: String) {
+        guard let index = stacks.firstIndex(where: { $0.id == id }) else { return }
+        stacks[index].name = name
+    }
+
+    /// Deleting the stack in use moves you to the newest other one (or a fresh one on next use).
+    func deleteStack(_ id: UUID) {
+        stacks.removeAll { $0.id == id }
+        if activeID == id { activeID = stacks.last?.id }
+    }
 
     /// Hide: off the screen and out of Stack Mode, with everything kept.
     func hide() {
@@ -248,24 +308,51 @@ final class DictationStack: ObservableObject {
 
     func show() {
         hidden = false
-        used = true
+        everUsed = true
     }
 
     /// An empty stack opened from the menu: your last dictations, to paste again.
     func refillFromHistory() {
-        items = HistoryStore.shared.entries.filter { $0.status == nil && !$0.text.isEmpty }
+        let recent = HistoryStore.shared.entries.filter { $0.status == nil && !$0.text.isEmpty }
             .prefix(3)
             .reversed()
             .map { StackItem(text: $0.text, added: $0.date) }
+        changeActive { $0 = Array(recent) }
+    }
+
+    /// Changes the lines of the stack in use (making one first if there's none).
+    private func changeActive(_ change: (inout [StackItem]) -> Void) {
+        if active == nil {
+            let stack = NamedStack(name: nextName(), created: Date())
+            stacks.append(stack)
+            activeID = stack.id
+        }
+        guard let index = stacks.firstIndex(where: { $0.id == activeID }) else { return }
+        change(&stacks[index].items)
+    }
+
+    /// Empty stacks other than the one in use aren't worth keeping in the list.
+    private func pruneEmpty() {
+        stacks.removeAll { $0.items.isEmpty && $0.id != activeID }
+    }
+
+    /// "Stack 1", "Stack 2"… until you rename them.
+    private func nextName() -> String {
+        let used = stacks.compactMap { stack -> Int? in
+            guard stack.name.hasPrefix("Stack ") else { return nil }
+            return Int(stack.name.dropFirst(6))
+        }
+        return "Stack \(max(used.max() ?? 0, stacks.count) + 1)"
     }
 
     private func save() {
-        guard AppSettings.shared.historyRetention != .off, !items.isEmpty else {
+        guard !loading else { return }
+        guard AppSettings.shared.historyRetention != .off, !(pins.isEmpty && stacks.allSatisfy(\.items.isEmpty)) else {
             try? FileManager.default.removeItem(at: fileURL)
             return
         }
         try? FileManager.default.createDirectory(at: AppData.directory, withIntermediateDirectories: true)
-        try? JSONEncoder().encode(items).write(to: fileURL, options: [.atomic])
+        try? JSONEncoder().encode(Stored(pins: pins, stacks: stacks, activeID: activeID)).write(to: fileURL, options: [.atomic])
     }
 
     /// "just now", "5 min ago", "yesterday"…
@@ -334,9 +421,11 @@ final class StackPanel {
     func start() {
         guard cancellables.isEmpty else { return }
         let stack = DictationStack.shared, settings = AppSettings.shared
-        stack.$items.map(\.isEmpty).removeDuplicates().map { _ in () }
-            .merge(with: stack.$hidden.removeDuplicates().map { _ in () },
-                   stack.$used.removeDuplicates().map { _ in () },
+        stack.$pins.map { _ in () }
+            .merge(with: stack.$stacks.map { _ in () },
+                   stack.$activeID.map { _ in () },
+                   stack.$hidden.removeDuplicates().map { _ in () },
+                   stack.$everUsed.removeDuplicates().map { _ in () },
                    settings.$stackMode.removeDuplicates().map { _ in () },
                    settings.$stackTab.removeDuplicates().map { _ in () })
             .sink { [weak self] in DispatchQueue.main.async { self?.refresh() } }
@@ -433,7 +522,7 @@ final class StackPanel {
 
     private var wanted: Bool {
         let stack = DictationStack.shared, settings = AppSettings.shared
-        guard !stack.hidden, stack.used || !stack.items.isEmpty || settings.stackMode else { return false }
+        guard !stack.hidden, stack.everUsed || !stack.items.isEmpty || settings.stackMode else { return false }
         return settings.stackTab != .hidden || state.keptOpen
     }
 
@@ -555,10 +644,10 @@ final class StackPanel {
         let mode = item("Stack Mode") { DictationController.shared.toggleStackMode() }
         mode.state = AppSettings.shared.stackMode ? .on : .off
         menu.addItem(mode)
-        let save = item("Save Stack") { StackPanel.shared.saveCurrentStack() }
-        save.isEnabled = !DictationStack.shared.queue.isEmpty
-        menu.addItem(save)
-        menu.addItem(item("Saved Stacks…") { DictationController.shared.openSettings(.stacks) })
+        let new = item("New Stack") { StackPanel.shared.newStack() }
+        new.isEnabled = !DictationStack.shared.queue.isEmpty
+        menu.addItem(new)
+        menu.addItem(item("All Stacks…") { DictationController.shared.openSettings(.stacks) })
         menu.addItem(.separator())
         menu.addItem(item("Hide Stack") { StackPanel.shared.hide() })
         return menu
@@ -586,6 +675,7 @@ final class StackPanel {
                      "Also remind me to send the invoice to Daniel before Friday."]
         for text in many ? lines + lines.dropFirst() + lines.dropFirst() : lines { stack.add(text) }
         if let first = stack.items.first { stack.togglePin(first.id) }
+        if let id = stack.activeID { stack.rename(id, to: "Message to Sarah") }
         start()
         place(on: screen)
         // The capture region in global top-left coordinates.
@@ -624,12 +714,18 @@ final class StackPanel {
         }
         backdrop.orderOut(nil)
         // The Stacks page, with one saved stack and the current one.
-        StackLibrary.shared.saveCurrent()
+        stack.newStack()
         for text in ["Call me back when you can, thanks.", "The files for the shoot are in the shared folder."] { stack.add(text) }
         DictationController.shared.openSettings(.stacks)
         try? await Task.sleep(for: .seconds(1.5))
-        FilesWindow.capture(NSApp.windows.first { $0.isVisible && $0.title == SettingsView.Pane.stacks.title },
-                            to: directory.appendingPathComponent("stacks-page.png"))
+        // From the screen: lists and sidebars draw with vibrancy, which a view snapshot leaves out.
+        if let window = NSApp.windows.first(where: { $0.isVisible && $0.title == SettingsView.Pane.stacks.title }) {
+            window.orderFrontRegardless()
+            try? await Task.sleep(for: .milliseconds(300))
+            let frame = window.frame
+            DictationController.capture(CGRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height),
+                                        to: directory.appendingPathComponent("stacks-page.png"))
+        }
         settings.stackTab = saved.0
         settings.stackMode = saved.1
         if saved.2 { stack.hide() }
@@ -742,8 +838,7 @@ struct StackView: View {
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                Text(settings.stackMode ? "Stacking" : "Stack")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                stackSwitcher
                 if !stack.items.isEmpty {
                     Text("\(stack.items.count)")
                         .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -751,8 +846,8 @@ struct StackView: View {
                 }
                 Spacer()
                 if !stack.queue.isEmpty {
-                    circleButton("square.and.arrow.down", help: "Save this stack for later and start a new one (Saved Stacks in the main window)") {
-                        StackPanel.shared.saveCurrentStack()
+                    circleButton("plus", help: "Start a new stack (this one stays in All Stacks)") {
+                        StackPanel.shared.newStack()
                     }
                 }
                 circleButton("xmark", help: "Close (Esc)") { StackPanel.shared.close() }
@@ -894,13 +989,49 @@ struct StackView: View {
     }
 
     /// Paste at your cursor; ▾ chooses what's included (remembered, also in Settings › Stack).
+    /// The stack in use, by name; ▾ switches to another or starts a new one.
+    private var stackSwitcher: some View {
+        Menu {
+            ForEach(stack.stacks.reversed()) { other in
+                Button {
+                    DictationStack.shared.activate(other.id)
+                } label: {
+                    if other.id == stack.activeID {
+                        Label(other.name, systemImage: "checkmark")
+                    } else {
+                        Text(other.name)
+                    }
+                }
+            }
+            Divider()
+            Button("New Stack") { StackPanel.shared.newStack() }
+            Button("All Stacks…") { DictationController.shared.openSettings(.stacks) }
+        } label: {
+            HStack(spacing: 4) {
+                Text(stack.active?.name ?? "Stack")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: 220, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Switch stacks")
+    }
+
     /// One capsule, the same height as Clear: paste on the left, the ▾ choice on the right.
     private var pasteButton: some View {
         HStack(spacing: 0) {
             Button {
                 DictationController.shared.pasteAllFromStack()
             } label: {
-                Image(systemName: "list.clipboard")
+                Image(systemName: "doc.on.clipboard")
                     .font(.system(size: 12.5, weight: .semibold))
                     .frame(width: 34, height: footerHeight)
                     .contentShape(.rect)

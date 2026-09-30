@@ -53,7 +53,7 @@ struct SettingsView: View {
             case .vocabulary: "Names, jargon, replacements and snippets"
             case .history: "Everything you've dictated, kept on this Mac"
             case .files: "Transcripts of audio and video files, made on this Mac"
-            case .stacks: "The stack you're adding to, and the ones you saved for later"
+            case .stacks: "Your stacks of dictations, and which one is in use"
             case .permissions: "What Driftflow needs, and why"
             }
         }

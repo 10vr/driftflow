@@ -1,162 +1,112 @@
 import AppKit
 import SwiftUI
 
-/// A stack put aside for later ("Message to Ali"), while a new one fills up.
-struct SavedStack: Identifiable, Codable, Equatable {
-    var id = UUID()
-    var name: String
-    let saved: Date
-    var items: [StackItem]
-
-    var joined: String { items.map(\.text).joined(separator: " ") }
-}
-
-/// Saved stacks, newest first, kept on this Mac (you saved them on purpose, so they're kept even
-/// with History off).
-@MainActor
-final class StackLibrary: ObservableObject {
-    static let shared = StackLibrary()
-
-    @Published private(set) var stacks: [SavedStack] = [] { didSet { save() } }
-    private let fileURL = AppData.directory.appendingPathComponent("saved-stacks.json")
-
-    private init() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        stacks = (try? JSONDecoder().decode([SavedStack].self, from: data)) ?? []
-    }
-
-    /// Save Stack: the current stack (pinned lines stay put) is set aside and a new one starts.
-    @discardableResult
-    func saveCurrent() -> SavedStack? {
-        let lines = DictationStack.shared.takeQueue()
-        guard !lines.isEmpty else { return nil }
-        let saved = SavedStack(name: Self.name(for: lines), saved: Date(), items: lines)
-        stacks.insert(saved, at: 0)
-        return saved
-    }
-
-    /// Use Again: this one becomes the current stack. What was there is saved first, so switching
-    /// between stacks never loses anything.
-    func useAgain(_ id: UUID) {
-        guard let index = stacks.firstIndex(where: { $0.id == id }) else { return }
-        let chosen = stacks.remove(at: index)
-        saveCurrent()
-        DictationStack.shared.load(chosen.items)
-    }
-
-    func rename(_ id: UUID, to name: String) {
-        guard let index = stacks.firstIndex(where: { $0.id == id }) else { return }
-        stacks[index].name = name
-    }
-
-    func delete(_ id: UUID) {
-        stacks.removeAll { $0.id == id }
-    }
-
-    func moveLines(in id: UUID, from source: IndexSet, to destination: Int) {
-        guard let index = stacks.firstIndex(where: { $0.id == id }) else { return }
-        stacks[index].items.move(fromOffsets: source, toOffset: destination)
-    }
-
-    func removeLine(_ lineID: UUID, from id: UUID) {
-        guard let index = stacks.firstIndex(where: { $0.id == id }) else { return }
-        stacks[index].items.removeAll { $0.id == lineID }
-        if stacks[index].items.isEmpty { stacks.remove(at: index) }
-    }
-
-    /// The start of the first line, until you rename it.
-    private static func name(for lines: [StackItem]) -> String {
-        let words = lines[0].text.split(separator: " ")
-        return words.prefix(5).joined(separator: " ") + (words.count > 5 ? "…" : "")
-    }
-
-    private func save() {
-        try? FileManager.default.createDirectory(at: AppData.directory, withIntermediateDirectories: true)
-        try? JSONEncoder().encode(stacks).write(to: fileURL, options: [.atomic])
-    }
-}
-
 extension StackPanel {
-    /// Save Stack (the floating stack's header or its tab's menu): set aside, with a way to find it.
-    func saveCurrentStack() {
-        guard let saved = StackLibrary.shared.saveCurrent() else { return }
-        DictationController.shared.showToast(HUDToast(icon: "square.and.arrow.down",
-                                                      text: "Saved as “\(saved.name)”. A new stack has started.",
-                                                      action: .openStacks), for: 5)
+    /// New Stack (＋ on the floating stack, its ▾, or its tab's menu): a fresh one in use.
+    func newStack() {
+        let previous = DictationStack.shared.active?.name
+        DictationStack.shared.newStack()
+        guard let previous else { return }
+        DictationController.shared.showToast(HUDToast(icon: "rectangle.stack.badge.plus",
+                                                      text: "New stack started. “\(previous)” is in All Stacks.",
+                                                      action: .openStacks), for: 4)
     }
 }
 
 // MARK: - The Stacks page
 
-/// Stacks in the main window: the one you're adding to now, and the ones you saved, each with its
-/// lines in full, to reorder, rename, copy or bring back.
+/// Stacks in the main window: every stack in one list, the one in use marked, each shown in full
+/// to rename, reorder, copy or switch to; and the pinned lines they all share.
 struct StacksPane: View {
     enum Selection: Hashable {
-        case current
-        case saved(UUID)
+        case pins
+        case stack(UUID)
     }
 
-    @ObservedObject private var library = StackLibrary.shared
-    @ObservedObject private var stack = DictationStack.shared
-    @State private var selection: Selection? = .current
+    @ObservedObject private var store = DictationStack.shared
+    @State private var selection: Selection?
 
     var body: some View {
         HStack(spacing: 0) {
-            List(selection: $selection) {
-                Section("Now") {
-                    StackListRow(name: "Current Stack", detail: stack.items.isEmpty ? "Empty" : lines(stack.items.count),
-                                 icon: "rectangle.stack")
-                        .tag(Selection.current)
-                }
-                Section("Saved") {
-                    if library.stacks.isEmpty {
-                        Text("Stacks you save appear here")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                List(selection: $selection) {
+                    if !store.pins.isEmpty {
+                        Section {
+                            StackListRow(name: "Pinned", detail: lines(store.pins.count), icon: "pin", inUse: false, selected: current == .pins)
+                                .tag(Selection.pins)
+                        }
                     }
-                    ForEach(library.stacks) { saved in
-                        StackListRow(name: saved.name,
-                                     detail: "\(lines(saved.items.count)) · \(saved.saved.formatted(.relative(presentation: .named)))",
-                                     icon: "tray.full")
-                            .tag(Selection.saved(saved.id))
-                            .contextMenu {
-                                Button("Use Again") { useAgain(saved.id) }
-                                Button("Copy All") { TextInserter.shared.copy(saved.joined) }
-                                Divider()
-                                Button("Delete", role: .destructive) { delete(saved.id) }
-                            }
+                    Section("Stacks") {
+                        ForEach(store.stacks.reversed()) { stack in
+                            StackListRow(name: stack.name,
+                                         detail: "\(lines(stack.items.count)) · \(stack.created.formatted(.relative(presentation: .named)))",
+                                         icon: "rectangle.stack", inUse: stack.id == store.activeID,
+                                         selected: current == .stack(stack.id))
+                                .tag(Selection.stack(stack.id))
+                                .contextMenu {
+                                    if stack.id != store.activeID {
+                                        Button("Use This Stack") { store.activate(stack.id) }
+                                    }
+                                    Button("Copy All") { TextInserter.shared.copy(stack.joined) }
+                                        .disabled(stack.items.isEmpty)
+                                    Divider()
+                                    Button("Delete", role: .destructive) { delete(stack.id) }
+                                }
+                        }
                     }
                 }
+                Divider()
+                HStack {
+                    Button {
+                        store.newStack()
+                        selection = store.activeID.map(Selection.stack)
+                    } label: {
+                        Label("New Stack", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    Spacer()
+                }
+                .padding(10)
             }
             .frame(width: 250)
             Divider()
             Group {
-                switch selection ?? .current {
-                case .current:
-                    CurrentStackDetail(stack: stack)
-                case .saved(let id):
-                    if let saved = library.stacks.first(where: { $0.id == id }) {
-                        SavedStackDetail(saved: saved, useAgain: { useAgain(id) }, delete: { delete(id) })
+                switch current {
+                case .pins:
+                    PinsDetail(store: store)
+                case .stack(let id):
+                    if let stack = store.stacks.first(where: { $0.id == id }) {
+                        StackDetail(stack: stack, inUse: stack.id == store.activeID, store: store) { delete(id) }
                     } else {
-                        CurrentStackDetail(stack: stack)
+                        empty
                     }
+                case nil:
+                    empty
                 }
             }
             .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onAppear { if selection == nil { selection = current } }
+    }
+
+    /// The selected stack, or the one in use.
+    private var current: Selection? {
+        if let selection, selection == .pins ? !store.pins.isEmpty : store.stacks.contains(where: { .stack($0.id) == selection }) {
+            return selection
+        }
+        return store.activeID.map(Selection.stack) ?? store.stacks.last.map { .stack($0.id) }
+    }
+
+    private var empty: some View {
+        ContentUnavailableView("No stacks yet", systemImage: "rectangle.stack",
+                               description: Text("Turn on Stack Mode, or use the stack button on the pill while you dictate."))
     }
 
     private func lines(_ count: Int) -> String { count == 1 ? "1 line" : "\(count) lines" }
 
-    private func useAgain(_ id: UUID) {
-        library.useAgain(id)
-        DictationStack.shared.show()
-        selection = .current
-    }
-
     private func delete(_ id: UUID) {
-        library.delete(id)
-        if selection == .saved(id) { selection = .current }
+        store.deleteStack(id)
+        if selection == .stack(id) { selection = nil }
     }
 }
 
@@ -164,11 +114,14 @@ private struct StackListRow: View {
     let name: String
     let detail: String
     let icon: String
+    let inUse: Bool
+    /// On the selection's accent colour, the violet marks turn white.
+    let selected: Bool
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(inUse && !selected ? AnyShapeStyle(Brand.violet) : AnyShapeStyle(.secondary))
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).lineLimit(1)
@@ -176,95 +129,89 @@ private struct StackListRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Spacer()
+            if inUse {
+                Text("In Use")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(selected ? Color.white : Brand.violet)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(selected ? Color.white.opacity(0.22) : Brand.violet.opacity(0.14)))
+            }
         }
         .padding(.vertical, 2)
     }
 }
 
-private struct CurrentStackDetail: View {
-    @ObservedObject var stack: DictationStack
-    @ObservedObject private var settings = AppSettings.shared
+private struct StackDetail: View {
+    let stack: NamedStack
+    let inUse: Bool
+    @ObservedObject var store: DictationStack
+    let delete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Current Stack")
+                    TextField("Name", text: Binding(get: { stack.name }, set: { store.rename(stack.id, to: $0) }))
+                        .textFieldStyle(.plain)
                         .font(.title2.weight(.semibold))
-                    Text(settings.stackMode ? "Stack Mode is on: new dictations are added here."
-                         : "Dictations you add with the pill's stack button, or that had nowhere to paste, land here.")
+                        .help("Rename this stack")
+                    Text(inUse ? "In use: it's the floating stack at the bottom right, and new dictations go into it."
+                         : "\(stack.items.count == 1 ? "1 line" : "\(stack.items.count) lines") · started \(stack.created.formatted(date: .abbreviated, time: .shortened))")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Save Stack") { StackPanel.shared.saveCurrentStack() }
-                    .disabled(stack.queue.isEmpty)
-                    .help("Put this stack aside for later and start a new one")
+                if inUse {
+                    Button("Show") { StackPanel.shared.open() }
+                        .help("Open the floating stack")
+                } else {
+                    Button("Use This Stack") { store.activate(stack.id) }
+                        .buttonStyle(.borderedProminent)
+                        .help("Show it in the floating stack; new dictations go into it")
+                }
                 Button("Copy All") { TextInserter.shared.copy(stack.joined) }
-                    .disabled(stack.pasteItems.isEmpty)
-                Button("Clear") { stack.clear() }
-                    .disabled(stack.queue.isEmpty)
+                    .disabled(stack.items.isEmpty)
+                Button("Delete", role: .destructive, action: delete)
             }
             .padding(20)
             Divider()
             if stack.items.isEmpty {
-                ContentUnavailableView("Nothing in the stack",
-                                       systemImage: "rectangle.stack",
-                                       description: Text("Turn on Stack Mode, or use the stack button on the pill while you dictate."))
+                ContentUnavailableView("Empty", systemImage: "rectangle.stack",
+                                       description: Text(inUse ? "New dictations will stack up here." : "This stack has no lines."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
-                    if !stack.pins.isEmpty {
-                        Section("Pinned") {
-                            ForEach(stack.pins) { item in
-                                StackLineRow(number: nil, item: item) { stack.remove(item.id) }
-                            }
-                            .onMove { stack.movePins(from: $0, to: $1) }
-                        }
+                    ForEach(Array(stack.items.enumerated()), id: \.element.id) { index, item in
+                        StackLineRow(number: index + 1, item: item) { store.remove(item.id) }
                     }
-                    Section(stack.pins.isEmpty ? "" : "Stack") {
-                        ForEach(Array(stack.queue.enumerated()), id: \.element.id) { index, item in
-                            StackLineRow(number: index + 1, item: item) { stack.remove(item.id) }
-                        }
-                        .onMove { stack.moveQueue(from: $0, to: $1) }
-                    }
+                    .onMove { store.moveLines(in: stack.id, from: $0, to: $1) }
                 }
             }
         }
     }
 }
 
-private struct SavedStackDetail: View {
-    let saved: SavedStack
-    let useAgain: () -> Void
-    let delete: () -> Void
-    @ObservedObject private var library = StackLibrary.shared
+private struct PinsDetail: View {
+    @ObservedObject var store: DictationStack
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    TextField("Name", text: Binding(get: { saved.name }, set: { library.rename(saved.id, to: $0) }))
-                        .textFieldStyle(.plain)
-                        .font(.title2.weight(.semibold))
-                        .help("Rename this stack")
-                    Text("\(saved.items.count == 1 ? "1 line" : "\(saved.items.count) lines") · saved \(saved.saved.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Use Again", action: useAgain)
-                    .help("Make this the current stack (the current one is saved first)")
-                Button("Copy All") { TextInserter.shared.copy(saved.joined) }
-                Button("Delete", role: .destructive, action: delete)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Pinned")
+                    .font(.title2.weight(.semibold))
+                Text("Pinned lines show at the top of every stack and stay after you paste them.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
             .padding(20)
             Divider()
             List {
-                ForEach(Array(saved.items.enumerated()), id: \.element.id) { index, item in
-                    StackLineRow(number: index + 1, item: item) { library.removeLine(item.id, from: saved.id) }
+                ForEach(store.pins) { item in
+                    StackLineRow(number: nil, item: item) { store.remove(item.id) }
                 }
-                .onMove { library.moveLines(in: saved.id, from: $0, to: $1) }
+                .onMove { store.movePins(from: $0, to: $1) }
             }
         }
     }

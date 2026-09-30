@@ -24,8 +24,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.$phase
             .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshIcon() } }
             .store(in: &cancellables)
-        DictationStack.shared.$items.map(\.count).removeDuplicates().map { _ in () }
-            .merge(with: settings.$stackMode.removeDuplicates().map { _ in () })
+        let stack = DictationStack.shared
+        stack.$pins.map { _ in () }
+            .merge(with: stack.$stacks.map { _ in () }, stack.$activeID.map { _ in () },
+                   settings.$stackMode.removeDuplicates().map { _ in () })
             .sink { [weak self] in DispatchQueue.main.async { self?.refreshIcon() } }
             .store(in: &cancellables)
     }
@@ -131,7 +133,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(command("Open Stack", enabled: hasDictations || !DictationStack.shared.items.isEmpty || settings.stackMode) {
             StackPanel.shared.open()
         })
-        menu.addItem(command("Saved Stacks…") { [controller] in controller.openSettings(.stacks) })
+        menu.addItem(command("All Stacks…") { [controller] in controller.openSettings(.stacks) })
 
         menu.addItem(.separator())
         menu.addItem(command("Transcribe Audio Files…") { FilesWindow.shared.show() })
