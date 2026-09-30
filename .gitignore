@@ -7,4 +7,5 @@ dist/
 # macOS
 .DS_Store
 .venv-dmg/
-.claude/worktrees/
+# Local tool settings (Claude Code), not part of the app
+.claude/

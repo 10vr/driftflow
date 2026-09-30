@@ -240,8 +240,8 @@ enum VocabularyMerge {
             let leading = rawWords.prefix { smallWords.contains(key($0)) && !newKeys.contains(key($0)) }
             let trailing = rawWords.dropFirst(leading.count).reversed().prefix { smallWords.contains(key($0)) && !newKeys.contains(key($0)) }.reversed()
             // Only trust a replacement that resembles what the model heard ("Lamink Kilako" →
-            // "Luminkilako"); the rescorer was measured swapping in unrelated terms ("paper" →
-            // "Parakeet", "magician" → "Luminkilako") that this rejects.
+            // "Luminkilako"); the rescorer was measured swapping in unrelated terms (such as
+            // "paper" → "Parakeet") that this rejects.
             let heard = rawWords.dropFirst(leading.count).dropLast(trailing.count).map(key).joined()
             if !words.isEmpty, !heard.isEmpty, similarity(heard, words.map(key).joined()) < minimumSimilarity {
                 words = rawWords
