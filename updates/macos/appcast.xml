@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.17</title>
+            <pubDate>Wed, 30 Sep 2026 03:04:09 GMT</pubDate>
+            <sparkle:version>202609301103</sparkle:version>
+            <sparkle:shortVersionString>0.2.17</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Faster everywhere you dictate: with Vocabulary words, text appears up to 4× sooner after you let go of the key.</p><p>The pill and start sound appear the moment you press the key.</p><p>Your first words show up in the live preview sooner.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.17/Driftflow-0.2.17-macOS.zip" type="application/octet-stream" sparkle:edSignature="J2V+8SwvD58IDXWnBxGWqU3JjT2yjgjDeXjz3t49wb9nwbda+w1U0I0yFCX972hlr+6ezoUVmyYyXrhzT5uICQ==" length="13481167"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.16</title>
             <pubDate>Tue, 29 Sep 2026 12:21:40 GMT</pubDate>
             <sparkle:version>202609292021</sparkle:version>
