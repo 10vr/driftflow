@@ -154,9 +154,6 @@ final class DictationStack: ObservableObject {
     @Published private(set) var activeID: UUID? { didSet { save() } }
     /// Put away with Hide: kept, just not on screen (Open Stack brings it back).
     @Published private(set) var hidden: Bool { didSet { UserDefaults.standard.set(hidden, forKey: "stackHidden") } }
-    /// Once you've used a stack, its tab stays on screen (it's also the Stack Mode switch); before
-    /// that it only appears when something goes in.
-    @Published private(set) var everUsed: Bool { didSet { UserDefaults.standard.set(everUsed, forKey: "stackUsed") } }
     /// Counts additions, so the tab can bounce when something goes in.
     @Published private(set) var addedCount = 0
     private let fileURL = AppData.directory.appendingPathComponent("stacks.json")
@@ -170,7 +167,6 @@ final class DictationStack: ObservableObject {
 
     private init() {
         hidden = UserDefaults.standard.bool(forKey: "stackHidden")
-        everUsed = UserDefaults.standard.bool(forKey: "stackUsed")
         guard AppSettings.shared.historyRetention != .off, let data = try? Data(contentsOf: fileURL),
               let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return }
         loading = true
@@ -218,7 +214,6 @@ final class DictationStack: ObservableObject {
             if lines.count > Self.capacity { lines.removeFirst(lines.count - Self.capacity) }
         }
         hidden = false // something new went in: show where it went
-        everUsed = true
         addedCount += 1
         StackPanel.shared.itemAdded()
         return item.id
@@ -298,7 +293,6 @@ final class DictationStack: ObservableObject {
         stacks.append(stack)
         activeID = stack.id
         hidden = false
-        everUsed = true
     }
 
     /// Use This Stack: it becomes the floating stack, and new dictations go into it.
@@ -308,7 +302,6 @@ final class DictationStack: ObservableObject {
         activeID = id
         pruneEmpty()
         hidden = false
-        everUsed = true
     }
 
     func rename(_ id: UUID, to name: String) {
@@ -331,7 +324,6 @@ final class DictationStack: ObservableObject {
 
     func show() {
         hidden = false
-        everUsed = true
     }
 
     /// An empty stack opened from the menu: your last dictations, to paste again.
@@ -457,7 +449,6 @@ final class StackPanel {
             .merge(with: stack.$stacks.map { _ in () },
                    stack.$activeID.map { _ in () },
                    stack.$hidden.removeDuplicates().map { _ in () },
-                   stack.$everUsed.removeDuplicates().map { _ in () },
                    settings.$stackMode.removeDuplicates().map { _ in () },
                    settings.$stackTab.removeDuplicates().map { _ in () })
             .sink { [weak self] in DispatchQueue.main.async { self?.refresh() } }
@@ -553,20 +544,43 @@ final class StackPanel {
                                                       text: "Stack hidden, with everything in it. Open Stack in the menu bar brings it back."), for: 4)
     }
 
-    private var wanted: Bool {
-        let stack = DictationStack.shared, settings = AppSettings.shared
-        guard !stack.hidden, stack.everUsed || !stack.items.isEmpty || settings.stackMode else { return false }
-        return settings.stackTab != .hidden || state.keptOpen
+    /// Waiting to fade out an empty tab.
+    private var fadeWork: DispatchWorkItem?
+
+    /// Nothing in the stack (no lines, no pins), Stack Mode off, and the list closed: the tab has
+    /// no use, so it fades away (Open Stack or Stack Mode in the menu bar bring it back).
+    private var emptyAndIdle: Bool {
+        DictationStack.shared.items.isEmpty && !AppSettings.shared.stackMode && !state.keptOpen && !state.expanded
     }
 
+    /// Shows the tab, or takes it away: at once after Hide (or with the tab set to hidden), and
+    /// after a few seconds once the stack is empty, so you see it empty rather than vanish.
     private func refresh() {
-        guard wanted else {
-            state.keptOpen = false
-            state.expanded = false
-            panel?.orderOut(nil)
-            stopFollowing()
+        let open = state.keptOpen || state.expanded
+        if DictationStack.shared.hidden || (AppSettings.shared.stackTab == .hidden && !open) {
+            takeAway()
             return
         }
+        if emptyAndIdle {
+            guard panel?.isVisible == true, fadeWork == nil else { return }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.fadeWork = nil
+                guard self.emptyAndIdle, let panel = self.panel else { return }
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.3
+                    panel.animator().alphaValue = 0
+                }, completionHandler: {
+                    onMainThread { if self.emptyAndIdle { self.takeAway() } else { panel.alphaValue = 1 } }
+                })
+            }
+            fadeWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+            return
+        }
+        fadeWork?.cancel()
+        fadeWork = nil
+        panel?.alphaValue = 1
         guard panel?.isVisible != true else {
             if state.keptOpen { expand(); follow() }
             return
@@ -577,6 +591,16 @@ final class StackPanel {
         panel.appearance = HUDController.systemAppearance
         panel.orderFrontRegardless()
         if state.keptOpen { expand(); follow() }
+    }
+
+    private func takeAway() {
+        fadeWork?.cancel()
+        fadeWork = nil
+        state.keptOpen = false
+        state.expanded = false
+        panel?.orderOut(nil)
+        panel?.alphaValue = 1
+        stopFollowing()
     }
 
     func place(on screen: NSScreen?) {
@@ -621,6 +645,7 @@ final class StackPanel {
             guard let self, !self.state.expanded, !self.collapsed else { return }
             self.collapsed = true
             self.applyFrame()
+            self.refresh() // emptied while it was open: now it can fade
         }
         collapseWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
@@ -760,6 +785,29 @@ final class StackPanel {
             state.peeking = false
             print("tab showing for \(Int(seconds)) s, pid \(ProcessInfo.processInfo.processIdentifier)")
             try? await Task.sleep(for: .seconds(seconds))
+            NSApp.terminate(nil)
+            return
+        }
+        // DRIFTFLOW_DEMO_FADE=1: an emptied stack's tab stays a few seconds, then fades; Stack Mode
+        // brings it back.
+        if ProcessInfo.processInfo.environment["DRIFTFLOW_DEMO_FADE"] != nil {
+            let stack = DictationStack.shared, settings = AppSettings.shared
+            let savedMode = settings.stackMode
+            settings.stackMode = false
+            stack.add("A line")
+            stack.show()
+            start()
+            try? await Task.sleep(for: .seconds(1))
+            print("with a line: tab \(panel?.isVisible == true ? "showing" : "gone")")
+            stack.clear()
+            try? await Task.sleep(for: .seconds(2))
+            print("2 s after emptying: tab \(panel?.isVisible == true ? "showing" : "gone")")
+            try? await Task.sleep(for: .seconds(4))
+            print("6 s after emptying: tab \(panel?.isVisible == true ? "showing" : "gone")")
+            settings.stackMode = true
+            try? await Task.sleep(for: .seconds(1))
+            print("Stack Mode on, still empty: tab \(panel?.isVisible == true ? "showing" : "gone")")
+            settings.stackMode = savedMode
             NSApp.terminate(nil)
             return
         }
