@@ -196,6 +196,9 @@ final class AppSettings: ObservableObject {
     @Published var stackMode: Bool { didSet { defaults.set(stackMode, forKey: "stackMode") } }
     /// What Paste (and dragging the stack's tab) puts in: the stack, pinned lines, or both.
     @Published var stackPaste: StackPasteChoice { didSet { defaults.set(stackPaste.rawValue, forKey: "stackPaste") } }
+    /// Lines each stack holds; a new one past that pushes the oldest out (default 20).
+    @Published var stackCapacity: Int { didSet { defaults.set(stackCapacity, forKey: "stackCapacity") } }
+    static let stackCapacityRange = 5...200
     /// Held with the dictation key, sends that dictation to the stack (default ⌃ Control).
     @Published var stackKey: StackKey { didSet { defaults.set(stackKey.rawValue, forKey: "stackKey") } }
     /// Microphones in order of preference: Driftflow records from the first one that's connected.
@@ -257,12 +260,15 @@ final class AppSettings: ObservableObject {
             "stackMode": false,
             "stackPaste": StackPasteChoice.stack.rawValue,
             "stackKey": StackKey.control.rawValue,
+            "stackCapacity": 20,
             "keepFailedAudio": true,
             "duckAudio": true,
             "aiStyle": AIStyle.literal.rawValue,
             "learnCorrections": true,
         ])
         stackKey = StackKey(rawValue: defaults.string(forKey: "stackKey") ?? "") ?? .control
+        stackCapacity = min(max(defaults.integer(forKey: "stackCapacity"), Self.stackCapacityRange.lowerBound),
+                            Self.stackCapacityRange.upperBound)
         trigger = TriggerKey(rawValue: defaults.string(forKey: "trigger") ?? "") ?? .rightCommand
         // Migrate the old single "localeID" ("en-GB") setting.
         if let old = defaults.string(forKey: "localeID"), !old.isEmpty {

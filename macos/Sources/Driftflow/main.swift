@@ -421,9 +421,14 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
         check(stack.pins.map(\.text) == ["pinned line"], "pins never expire")
 
         stack.activate(recent.id)
-        for n in 1...12 { stack.add("line \(n)") }
-        check(stack.queue.count == DictationStack.capacity, "a stack holds \(DictationStack.capacity) lines")
+        let savedCapacity = AppSettings.shared.stackCapacity
+        AppSettings.shared.stackCapacity = 10
+        var pushed: [Int] = []
+        for n in 1...12 { pushed.append(stack.add("line \(n)").pushedOut) }
+        check(stack.queue.count == 10, "a stack holds the lines set in Settings (10 here)")
         check(stack.queue.last?.text == "line 12" && stack.queue.first?.text == "line 3", "the oldest lines are pushed out, in order")
+        // "Recent" had a line already: the 10th added fills it, and each after pushes one out.
+        check(pushed == Array(repeating: 0, count: 9) + [1, 1, 1], "each line past the limit reports the one it pushed out")
 
         let third = stack.queue[2].id
         check(stack.togglePin(third) && stack.pins.count == 2 && stack.queue.count == 9, "pinning moves a line to the shared pins")
@@ -447,6 +452,28 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
         stack.newStack()
         stack.activate(before!)
         check(stack.stacks.count == 2, "an empty stack you left isn't kept in the list")
+
+        // Moving lines between stacks (dragged on the Stacks page, or Move To).
+        let home = stack.activeID!
+        stack.newStack()
+        let other = stack.activeID!
+        stack.add("moving line")
+        let moving = stack.queue[0].id
+        check(stack.moveLine(moving, to: home) && stack.queue.isEmpty
+              && stack.stacks.first { $0.id == home }?.items.last?.id == moving, "a line moves to the end of another stack")
+        check(stack.moveLine(moving, to: nil) && stack.pins.last?.id == moving && stack.pins.last?.pinned == true,
+              "a line dropped on Pinned is pinned")
+        check(stack.moveLine(moving, to: other) && stack.queue.last?.id == moving && stack.queue.last?.pinned == false
+              && !stack.pins.contains { $0.id == moving }, "a pinned line dropped on a stack is unpinned into it")
+        check(!stack.moveLine(moving, to: UUID()) && stack.queue.last?.id == moving, "a stack that's gone leaves the line where it was")
+        stack.activate(home)
+
+        // A lower limit: the next line brings the stack down to it.
+        AppSettings.shared.stackCapacity = 5
+        let count = stack.queue.count
+        let result = stack.add("over the new limit")
+        check(stack.queue.count == 5 && result.pushedOut == count + 1 - 5, "after lowering the limit, the next line pushes the extra out (\(result.pushedOut))")
+        AppSettings.shared.stackCapacity = savedCapacity
 
         stack.clear()
         check(stack.queue.isEmpty && stack.pins.count == 2, "Clear empties the stack in use, pins stay")

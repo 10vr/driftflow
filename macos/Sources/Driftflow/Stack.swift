@@ -150,14 +150,14 @@ struct NamedStack: Identifiable, Codable, Equatable {
 
 /// Your stacks, and the one in use: the floating stack at the bottom right, which new dictations
 /// go into (from the pill's stack button, in Stack Mode, or when there was nowhere to paste).
-/// Each keeps its lines in the order you said them until you use or remove them (an 11th pushes
-/// the oldest out). Pinned lines (up to 5) are shared by every stack: reused, not used up.
+/// Each keeps its lines in the order you said them until you use or remove them (past the limit
+/// in Settings › General, 20 unless changed, a new one pushes the oldest out). Pinned lines (up
+/// to 5) are shared by every stack: reused, not used up.
 /// Kept on this Mac next to History, across restarts, for as long as History keeps dictations,
 /// counted from each stack's last change (pins never expire); only in memory when History is off.
 @MainActor
 final class DictationStack: ObservableObject {
     static let shared = DictationStack()
-    static let capacity = 10
     static let maxPins = 5
 
     @Published private(set) var pins: [StackItem] = [] { didSet { save() } }
@@ -217,18 +217,24 @@ final class DictationStack: ObservableObject {
     /// Those, in order, as one text.
     var joined: String { pasteItems.map(\.text).joined(separator: " ") }
 
+    /// Into the stack in use, at the end. `pushedOut`: how many of its oldest lines that pushed out
+    /// (more than one right after the limit was lowered).
     @discardableResult
-    func add(_ text: String) -> UUID {
+    func add(_ text: String) -> (id: UUID, pushedOut: Int) {
         prune()
         let item = StackItem(text: text, added: Date())
+        let capacity = AppSettings.shared.stackCapacity
+        var pushedOut = 0
         changeActive { lines in
             lines.append(item)
-            if lines.count > Self.capacity { lines.removeFirst(lines.count - Self.capacity) }
+            pushedOut = max(lines.count - capacity, 0)
+            lines.removeFirst(pushedOut)
         }
+        if pushedOut > 0 { AppLog.info("The stack was full (\(capacity) lines): \(pushedOut) oldest pushed out") }
         hidden = false // something new went in: show where it went
         addedCount += 1
         StackPanel.shared.itemAdded()
-        return item.id
+        return (item.id, pushedOut)
     }
 
     /// ✕ on a line: gone, pinned or not, from whichever stack it's in.
@@ -291,6 +297,37 @@ final class DictationStack: ObservableObject {
 
     func movePins(from source: IndexSet, to destination: Int) {
         pins.move(fromOffsets: source, toOffset: destination)
+    }
+
+    /// A line dragged onto another stack on the Stacks page (or chosen in a line's Move To menu):
+    /// out of where it is and onto the end of that one; `nil` is Pinned. Returns false when it
+    /// can't go (Pinned is full, or the line or the stack is gone).
+    @discardableResult
+    func moveLine(_ id: UUID, to target: UUID?) -> Bool {
+        if let target, !stacks.contains(where: { $0.id == target }) { return false }
+        var line: StackItem
+        if let pin = pins.first(where: { $0.id == id }) {
+            guard target != nil else { return true } // already pinned
+            line = pin
+            pins.removeAll { $0.id == id }
+        } else if let from = stacks.firstIndex(where: { $0.items.contains { $0.id == id } }),
+                  let found = stacks[from].items.first(where: { $0.id == id }) {
+            guard target != stacks[from].id else { return true }
+            if target == nil, pins.count >= Self.maxPins { return false }
+            line = found
+            stacks[from].items.removeAll { $0.id == id }
+            stacks[from].changed = Date()
+        } else {
+            return false
+        }
+        line.pinned = target == nil
+        if let target, let to = stacks.firstIndex(where: { $0.id == target }) {
+            stacks[to].items.append(line)
+            stacks[to].changed = Date()
+        } else {
+            pins.append(line)
+        }
+        return true
     }
 
     /// Clear: empties the stack in use; pins stay.
@@ -806,16 +843,34 @@ final class StackPanel {
             NSApp.terminate(nil)
             return
         }
-        // DRIFTFLOW_DEMO_SHORTCUTS=1: Settings › Shortcuts (the stack key), from the screen.
-        if ProcessInfo.processInfo.environment["DRIFTFLOW_DEMO_SHORTCUTS"] != nil {
-            DictationController.shared.openSettings(.shortcuts)
+        // DRIFTFLOW_DEMO_PANE=<pane>: that page of the main window (e.g. general, shortcuts), as tall
+        // as the screen allows, from the screen.
+        if let pane = ProcessInfo.processInfo.environment["DRIFTFLOW_DEMO_PANE"].flatMap(SettingsView.Pane.init(rawValue:)) {
+            DictationController.shared.openSettings(pane)
             try? await Task.sleep(for: .seconds(1.5))
-            if let window = NSApp.windows.first(where: { $0.isVisible && $0.title == SettingsView.Pane.shortcuts.title }) {
+            if let window = NSApp.windows.first(where: { $0.isVisible && $0.title == pane.title }) {
+                let screen = window.screen ?? NSScreen.main ?? NSScreen.screens[0]
+                window.setFrame(NSRect(x: window.frame.minX, y: screen.visibleFrame.minY, width: window.frame.width,
+                                       height: screen.visibleFrame.height), display: true)
                 window.orderFrontRegardless()
-                try? await Task.sleep(for: .milliseconds(300))
+                try? await Task.sleep(for: .milliseconds(500))
+                // DRIFTFLOW_DEMO_SCROLL=<0…1>: how far down the page.
+                if let fraction = ProcessInfo.processInfo.environment["DRIFTFLOW_DEMO_SCROLL"].flatMap(Double.init) {
+                    func scrollViews(in view: NSView) -> [NSScrollView] {
+                        (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
+                    }
+                    for scroll in scrollViews(in: window.contentView ?? NSView()) {
+                        guard let document = scroll.documentView else { continue }
+                        let range = max(document.frame.height - scroll.contentView.bounds.height, 0)
+                        let y = document.isFlipped ? range * fraction : range * (1 - fraction)
+                        scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+                        scroll.reflectScrolledClipView(scroll.contentView)
+                    }
+                    try? await Task.sleep(for: .milliseconds(400))
+                }
                 let frame = window.frame
                 DictationController.capture(CGRect(x: frame.minX, y: (NSScreen.screens.first?.frame.height ?? 0) - frame.maxY, width: frame.width, height: frame.height),
-                                            to: directory.appendingPathComponent("shortcuts.png"))
+                                            to: directory.appendingPathComponent("\(pane.rawValue).png"))
             }
             NSApp.terminate(nil)
             return
@@ -1146,7 +1201,7 @@ struct StackView: View {
                 }
             }
             .foregroundStyle(Brand.violet)
-            .frame(minWidth: 14, alignment: .trailing)
+            .frame(minWidth: stack.queue.count >= 100 ? 21 : 14, alignment: .trailing) // numbers line up
             .padding(.top, 2)
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.text)

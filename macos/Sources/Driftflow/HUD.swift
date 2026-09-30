@@ -233,6 +233,8 @@ struct HUDToast: Equatable {
         case addToVocabulary(String)
         case installUpdate
         case openStacks
+        /// Settings › General, where the lines per stack are set.
+        case stackLimit
     }
 
     var id = UUID()
@@ -247,6 +249,7 @@ struct HUDToast: Equatable {
         case .addToVocabulary: "Add"
         case .installUpdate: "Restart Now"
         case .openStacks: "View"
+        case .stackLimit: "Change Limit"
         case nil: nil
         }
     }

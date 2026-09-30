@@ -490,18 +490,30 @@ final class DictationController: ObservableObject {
     private func catchUntakenPaste(_ text: String) {
         Task {
             guard await inserter.waitUntilPasteTaken(timeout: .seconds(1)) == false else { return }
-            let id = DictationStack.shared.add(text)
+            let (id, pushedOut) = DictationStack.shared.add(text)
             AppLog.info("Nothing took the paste: put it in the stack")
-            let notice = HUDToast(icon: "rectangle.stack", text: settings.stackTab == .hidden
-                ? "Nothing to paste into here, so it's in your stack (in the menu bar)."
-                : "Nothing to paste into here, so it's in your stack.")
-            showToast(notice, for: 4)
+            let notice = pushedOut > 0 ? stackFullNotice(pushedOut, after: "Nothing to paste into here, so it's in your stack.")
+                : HUDToast(icon: "rectangle.stack", text: settings.stackTab == .hidden
+                    ? "Nothing to paste into here, so it's in your stack (in the menu bar)."
+                    : "Nothing to paste into here, so it's in your stack.")
+            showToast(notice, for: pushedOut > 0 ? 6 : 4)
             inserter.onPasteTaken = { [weak self] in
                 DictationStack.shared.remove(id)
                 if self?.toast?.id == notice.id { self?.dismissToast() }
                 AppLog.info("The paste was taken late after all: out of the stack again")
             }
         }
+    }
+
+    /// A dictation went into a full stack: what went out, and where it still is.
+    func stackFullNotice(_ pushedOut: Int, after reason: String?) -> HUDToast {
+        let kept = settings.historyRetention != .off
+        let went = pushedOut == 1
+            ? "the oldest line went out" + (kept ? " (it's still in History)" : "")
+            : "its \(pushedOut) oldest lines went out" + (kept ? " (they're still in History)" : "")
+        let text = reason.map { "\($0) It was full, so \(went)." }
+            ?? "Your stack holds \(settings.stackCapacity) lines, so \(went)."
+        return HUDToast(icon: "rectangle.stack.badge.minus", text: text, action: .stackLimit)
     }
 
     /// Stack Mode in the menu: every dictation goes into the stack until it's turned off.
@@ -608,6 +620,7 @@ final class DictationController: ObservableObject {
         case .openHistory: openSettings(.history)
         case .installUpdate: Updater.shared.installNow()
         case .openStacks: openSettings(.stacks)
+        case .stackLimit: openSettings(.general)
         case .addToVocabulary(let term):
             let terms = settings.vocabularyTerms
             if !terms.contains(where: { $0.caseInsensitiveCompare(term) == .orderedSame }) {
@@ -931,9 +944,11 @@ final class DictationController: ObservableObject {
                 guard generation == self.generation else { return }
                 let stacked = stacking || (!text.isEmpty && noTextBox)
                 if stacked {
-                    DictationStack.shared.add(text)
+                    let pushedOut = DictationStack.shared.add(text).pushedOut
                     lastWentToStack = true
-                    if noTextBox {
+                    if pushedOut > 0 {
+                        showToast(stackFullNotice(pushedOut, after: noTextBox ? "No text box here, so it's in your stack." : nil), for: 6)
+                    } else if noTextBox {
                         showToast(HUDToast(icon: "rectangle.stack", text: settings.stackTab == .hidden
                             ? "No text box here, so it's in your stack (in the menu bar)."
                             : "No text box here, so it's in your stack."), for: 3)
@@ -1264,6 +1279,21 @@ final class DictationController: ObservableObject {
         let visible = screen.visibleFrame
         let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
         let region = CGRect(x: screen.frame.midX - 360, y: primaryHeight - visible.minY - 12 - 120, width: 720, height: 120)
+        // DRIFTFLOW_DEMO_TOAST=1: the "stack full" messages, over black.
+        if ProcessInfo.processInfo.environment["DRIFTFLOW_DEMO_TOAST"] != nil {
+            backdrop.backgroundColor = .black
+            backdrop.orderFrontRegardless()
+            let notices = [("toast-full", stackFullNotice(1, after: nil)),
+                           ("toast-full-no-box", stackFullNotice(1, after: "No text box here, so it's in your stack.")),
+                           ("toast-full-many", stackFullNotice(4, after: nil))]
+            for (name, notice) in notices {
+                showToast(notice, for: 10)
+                try? await Task.sleep(for: .milliseconds(800))
+                Self.capture(region, to: directory.appendingPathComponent("\(name).png"))
+            }
+            NSApp.terminate(nil)
+            return
+        }
         for dark in [true, false] {
             backdrop.backgroundColor = dark ? .black : .white
             backdrop.orderFrontRegardless()

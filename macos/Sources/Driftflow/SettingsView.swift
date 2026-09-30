@@ -210,10 +210,32 @@ private struct GeneralPane: View {
                 Picker("Paste puts in", selection: $settings.stackPaste) {
                     ForEach(StackPasteChoice.allCases) { Text($0.label).tag($0) }
                 }
+                LabeledContent("Lines per stack") {
+                    HStack(spacing: 4) {
+                        TextField("Lines per stack", value: Binding(
+                            get: { settings.stackCapacity },
+                            set: { settings.stackCapacity = min(max($0, AppSettings.stackCapacityRange.lowerBound), AppSettings.stackCapacityRange.upperBound) }
+                        ), format: .number)
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 52)
+                        Stepper("Lines per stack", value: $settings.stackCapacity, in: AppSettings.stackCapacityRange, step: 5)
+                            .labelsHidden()
+                    }
+                }
+                .help("Up to \(AppSettings.stackCapacityRange.upperBound). Past it, a new dictation pushes the stack's oldest line out; it's still in History.")
+                LabeledContent("Stacks") {
+                    HStack(spacing: 8) {
+                        Button("New Stack") { StackPanel.shared.newStack() }
+                            .help("Start a fresh stack for new dictations; the one in use now stays in All Stacks")
+                        Button("All Stacks") { controller.openSettings(.stacks) }
+                    }
+                }
             } header: {
                 Text("Stack")
             } footer: {
-                Text("Dictations you add with the stack button on the pill, every dictation in Stack Mode, and any that had no text box to go into wait at the bottom right of the screen, in order, until you use them. Point at the stack's tab to see them: click one to paste it, drag it into a text box, or pin it to keep it after pasting. Click the tab to turn Stack Mode on or off, drag it to drop the whole stack, or right-click it to hide it. When the stack is empty and Stack Mode is off, the tab fades away; Open Stack or Stack Mode in the menu bar menu brings it back.")
+                Text("Dictations you add with the stack button on the pill, every dictation in Stack Mode, and any that had no text box to go into wait at the bottom right of the screen, in order, until you use them. Point at the stack's tab to see them: click one to paste it, drag it into a text box, or pin it to keep it after pasting. Click the tab to turn Stack Mode on or off, drag it to drop the whole stack, or right-click it to hide it. When the stack is empty and Stack Mode is off, the tab fades away; Open Stack or Stack Mode in the menu bar menu brings it back. A stack holds \(settings.stackCapacity) lines: past that, a new dictation pushes its oldest line out (it's still in History).")
                     .foregroundStyle(.secondary)
             }
 

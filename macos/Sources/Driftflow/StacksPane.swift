@@ -35,6 +35,7 @@ struct StacksPane: View {
                     if !store.pins.isEmpty {
                         Section {
                             StackListRow(name: "Pinned", detail: lines(store.pins.count), icon: "pin", inUse: false, selected: current == .pins)
+                                .modifier(LineDropTarget { store.moveLine($0, to: nil) })
                                 .tag(Selection.pins)
                         }
                     }
@@ -44,6 +45,7 @@ struct StacksPane: View {
                                          detail: "\(lines(stack.items.count)) · \(stack.lastChanged.formatted(.relative(presentation: .named)))",
                                          icon: stack.symbol, inUse: stack.id == store.activeID,
                                          selected: current == .stack(stack.id))
+                                .modifier(LineDropTarget { store.moveLine($0, to: stack.id) })
                                 .tag(Selection.stack(stack.id))
                                 .contextMenu {
                                     if stack.id != store.activeID {
@@ -237,7 +239,9 @@ private struct StackDetail: View {
             } else {
                 List {
                     ForEach(Array(stack.items.enumerated()), id: \.element.id) { index, item in
-                        StackLineRow(number: index + 1, item: item) { store.remove(item.id) }
+                        StackLineRow(number: index + 1, item: item, targets: store.moveTargets(from: stack.id),
+                                     move: { store.moveLine(item.id, to: $0) }, remove: { store.remove(item.id) },
+                                     wide: stack.items.count >= 100)
                     }
                     .onMove { store.moveLines(in: stack.id, from: $0, to: $1) }
                 }
@@ -254,7 +258,7 @@ private struct PinsDetail: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Pinned")
                     .font(.title2.weight(.semibold))
-                Text("Pinned lines show at the top of every stack and stay after you paste them.")
+                Text("Pinned lines show at the top of every stack and stay after you paste them. Drag one onto a stack in the list to unpin it into that stack.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -262,7 +266,8 @@ private struct PinsDetail: View {
             Divider()
             List {
                 ForEach(store.pins) { item in
-                    StackLineRow(number: nil, item: item) { store.remove(item.id) }
+                    StackLineRow(number: nil, item: item, targets: store.moveTargets(from: nil),
+                                 move: { store.moveLine(item.id, to: $0) }) { store.remove(item.id) }
                 }
                 .onMove { store.movePins(from: $0, to: $1) }
             }
@@ -294,11 +299,59 @@ private struct StackIconGrid: View {
     }
 }
 
-/// One line, in full and selectable; drag it to reorder.
+/// Where a line can go with Move To: Pinned, or another stack.
+struct StackMoveTarget: Identifiable {
+    /// nil: Pinned.
+    let id: UUID?
+    let name: String
+    let icon: String
+    var full = false
+}
+
+extension DictationStack {
+    /// Everywhere a line from `stackID` (nil: Pinned) can move to.
+    func moveTargets(from stackID: UUID?) -> [StackMoveTarget] {
+        (stackID == nil ? [] : [StackMoveTarget(id: nil, name: "Pinned", icon: "pin", full: pins.count >= Self.maxPins)])
+            + stacks.reversed().filter { $0.id != stackID }.map { StackMoveTarget(id: $0.id, name: $0.name, icon: $0.symbol) }
+    }
+}
+
+/// The line being dragged on the Stacks page, to tell it from text dragged in from another app.
+enum StackLineDrag {
+    nonisolated(unsafe) static var id: UUID?
+}
+
+/// A stack (or Pinned) in the list: drop a line from the one shown on it to move it there.
+private struct LineDropTarget: ViewModifier {
+    let move: (UUID) -> Bool
+    @State private var targeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(Brand.violet, lineWidth: 2)
+                .padding(-5)
+                .opacity(targeted ? 1 : 0))
+            .dropDestination(for: String.self) { texts, _ in
+                guard let id = StackLineDrag.id,
+                      let line = (DictationStack.shared.pins + DictationStack.shared.stacks.flatMap(\.items)).first(where: { $0.id == id }),
+                      texts.first == line.text else { return false }
+                StackLineDrag.id = nil
+                if !move(id) { NSSound.beep() }
+                return true
+            } isTargeted: { targeted = $0 }
+    }
+}
+
+/// One line, in full and selectable; drag it to reorder, or onto a stack in the list to move it.
 private struct StackLineRow: View {
     let number: Int?
     let item: StackItem
+    let targets: [StackMoveTarget]
+    let move: (UUID?) -> Bool
     let remove: () -> Void
+    /// In a stack of 100 lines or more: room for three-digit numbers, so every line's text lines up.
+    var wide = false
     @State private var hovering = false
 
     var body: some View {
@@ -311,7 +364,7 @@ private struct StackLineRow: View {
                 }
             }
             .foregroundStyle(Brand.violet)
-            .frame(minWidth: 18, alignment: .trailing)
+            .frame(minWidth: (number ?? 0) >= 100 || wide ? 27 : 18, alignment: .trailing)
             .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.text)
@@ -333,8 +386,21 @@ private struct StackLineRow: View {
         }
         .padding(.vertical, 4)
         .onHover { hovering = $0 }
+        .itemProvider {
+            StackLineDrag.id = item.id
+            return NSItemProvider(object: item.text as NSString)
+        }
         .contextMenu {
             Button("Copy") { TextInserter.shared.copy(item.text) }
+            if !targets.isEmpty {
+                Menu("Move To") {
+                    ForEach(targets) { target in
+                        Button { _ = move(target.id) } label: { Label(target.name, systemImage: target.icon) }
+                            .disabled(target.full)
+                    }
+                }
+            }
+            Divider()
             Button("Remove", role: .destructive, action: remove)
         }
     }
