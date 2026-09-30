@@ -342,7 +342,19 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
         if got != want { failures += 1 }
         print(got == want ? "PASS" : "FAIL", name)
     }
-    print(failures == 0 ? "all \(cases.count + stackKeys.count) passed" : "\(failures) failed")
+    // Joining a long dictation's pieces: a word split by the cut between two pieces is said once.
+    let joins: [(String, [String], String)] = [
+        ("a word split by a cut is said once", ["in mind from the start.", "Start. Finally, please"], "in mind from the start. Finally, please"),
+        ("two words split by a cut are said once", ["send it by Friday evening", "Friday evening and let me know"], "send it by Friday evening and let me know"),
+        ("short words may really repeat", ["I think I", "I will"], "I think I I will"),
+        ("a pause mid-sentence doesn't capitalize", ["we can start", "The shoot on Monday"], "we can start the shoot on Monday"),
+    ]
+    for (name, parts, want) in joins {
+        let got = SegmentedFinalizer.join(parts)
+        if got != want { failures += 1 }
+        print(got == want ? "PASS" : "FAIL", name, got == want ? "" : "(got \"\(got)\")")
+    }
+    print(failures == 0 ? "all \(cases.count + stackKeys.count + joins.count) passed" : "\(failures) failed")
     exit(failures == 0 ? 0 : 1)
 } else if arguments.contains("--load-test") {
     // Model switching: the vocabulary sequence that used to deadlock, then rapid switches where
@@ -663,6 +675,7 @@ func transcribeFile(path: String, localeID: String, model: ModelPreference) asyn
         if session is RecordingSession {
             pauses.start(recorder: session.recorder) { pauseCount += 1; session.onPhraseEnd?($0) }
         }
+        var runStart = clock.now
         // --preview model: the selected model drives the whole live preview (default: Apple, with an early Parakeet start).
         let early = ParakeetPreview()
         var earlyText: String?
@@ -674,13 +687,18 @@ func transcribeFile(path: String, localeID: String, model: ModelPreference) asyn
                 if firstPartial == nil { firstPartial = clock.now; earlyText = live }
                 previewUpdates += 1
                 lastPreview = SegmentedFinalizer.join([settled, live])
+                // --preview-log: every update, to see how the live text changes over a long dictation.
+                if CommandLine.arguments.contains("--preview-log") {
+                    let at = String(format: "%6.1f", Double((clock.now - runStart).components.attoseconds) / 1e18 + Double((clock.now - runStart).components.seconds))
+                    FileHandle.standardError.write(Data("[preview \(at)s] settled \(settled.split(separator: " ").count)w | \(lastPreview)\n".utf8))
+                }
             }
         }
         let loadTime = clock.now - loadStart
 
         // --realtime paces the audio like a live microphone (100 ms buffers) so the numbers reflect
         // what a user feels: time to first live text, and delay between releasing the key and final text.
-        let runStart = clock.now
+        runStart = clock.now
         let chunk = AVAudioFrameCount(file.processingFormat.sampleRate / 10)
         while file.framePosition < file.length {
             guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: chunk) else { break }

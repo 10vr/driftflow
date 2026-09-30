@@ -551,7 +551,10 @@ final class ParakeetPreview {
                 lastRead = total
                 let settled = finalizer?.completedText ?? ""
                 let begun = ContinuousClock.now
-                let result = try? await parakeet.transcribe(recorder.take(from: from), correct: false)
+                // Audio that stops mid-word makes the model guess ("the crew is a very good book"):
+                // read up to the quietest moment of the last half second instead, a word boundary.
+                let end = mode == .continuous && total - from > 16_000 ? Self.lastBoundary(before: total, after: from, in: recorder) : total
+                let result = try? await parakeet.transcribe(recorder.take(from: from, to: end), correct: false)
                 interval = max(.milliseconds(mode == .early ? 150 : 200), (ContinuousClock.now - begun) * 2)
                 guard let text = result,
                       !Task.isCancelled, mode == .continuous || !appleHasText() else { continue }
@@ -563,6 +566,22 @@ final class ParakeetPreview {
     func stop() {
         task?.cancel()
         task = nil
+    }
+
+    /// The quietest 20 ms in the last 0.5 s before `total` (not before `after`).
+    static func lastBoundary(before total: Int, after start: Int, in recorder: SampleRecorder) -> Int {
+        let frame = 320
+        let from = max(total - 8_000, start)
+        let audio = recorder.take(from: from, to: total)
+        var best = (energy: Float.greatestFiniteMagnitude, index: total)
+        var offset = 0
+        while offset + frame <= audio.count {
+            var energy: Float = 0
+            for i in offset..<(offset + frame) { energy += audio[i] * audio[i] }
+            if energy < best.energy { best = (energy, from + offset + frame / 2) }
+            offset += frame
+        }
+        return best.index
     }
 }
 
@@ -594,7 +613,7 @@ final class SegmentedFinalizer {
 
     /// Apple finalized speech up to `seconds` into the utterance.
     func phraseEnded(at seconds: Double) {
-        let cut = Int(seconds * 16_000)
+        let cut = Self.quietest(near: Int(seconds * 16_000), in: recorder)
         // After finish() starts, the tail already covers this audio.
         guard !finishing, cut - committed >= minimumSegment, cut <= recorder.count else { return }
         let slice = recorder.take(from: committed, to: cut)
@@ -628,14 +647,35 @@ final class SegmentedFinalizer {
         return Self.join(parts)
     }
 
-    static func join(_ parts: [String]) -> String {
+    /// Apple's phrase end can land a moment before the last word has finished; cut there and the
+    /// word's tail starts the next piece, heard as a word of its own ("…from the start. Start.").
+    /// So the cut moves to the quietest 20 ms from 0.1 s before to 0.5 s after it (as far as
+    /// audio has arrived).
+    static func quietest(near sample: Int, in recorder: SampleRecorder) -> Int {
+        let frame = 320
+        let from = max(sample - 1_600, 0), to = min(sample + 8_000, recorder.count)
+        guard to - from >= frame else { return sample }
+        let audio = recorder.take(from: from, to: to)
+        var best = (energy: Float.greatestFiniteMagnitude, index: sample)
+        var start = 0
+        while start + frame <= audio.count {
+            var energy: Float = 0
+            for i in start..<(start + frame) { energy += audio[i] * audio[i] }
+            if energy < best.energy { best = (energy, from + start + frame / 2) }
+            start += frame
+        }
+        return best.index
+    }
+
+    nonisolated static func join(_ parts: [String]) -> String {
         var output = ""
         for part in parts.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !part.isEmpty {
             guard let previous = output.last else {
                 output = part
                 continue
             }
-            var next = part
+            var next = dropRepeat(of: output, from: part)
+            guard !next.isEmpty else { continue }
             // A pause mid-sentence shouldn't capitalize the next word ("the client And we").
             let firstWord = next.prefix { $0.isLetter || $0 == "'" }
             if !".!?\n".contains(previous), next.first?.isUppercase == true,
@@ -649,6 +689,21 @@ final class SegmentedFinalizer {
             output += " " + next
         }
         return output
+    }
+
+    /// A word (or two) at the start of `part` that repeats the end of `text` came from the same
+    /// sound, split by the cut between them: it's said once. Words of three letters or more only,
+    /// so a real "I I" or "a a" isn't touched.
+    nonisolated static func dropRepeat(of text: String, from part: String) -> String {
+        func key(_ word: Substring) -> String { word.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "'" } }
+        let ending = text.split(separator: " ").suffix(2).map(key)
+        let words = part.split(separator: " ")
+        for count in [2, 1] where words.count >= count && ending.count >= count {
+            let lead = words.prefix(count).map(key)
+            guard lead == Array(ending.suffix(count)), lead.allSatisfy({ $0.count >= 3 }) else { continue }
+            return words.dropFirst(count).joined(separator: " ")
+        }
+        return part
     }
 }
 
