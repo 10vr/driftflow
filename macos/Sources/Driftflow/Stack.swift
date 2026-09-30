@@ -403,6 +403,8 @@ final class StackPanel {
                 state.peeking = false
                 try? await Task.sleep(for: .milliseconds(600))
                 DictationController.capture(region, to: directory.appendingPathComponent("\(name)-tab-\(style.rawValue).png"))
+                // What the pointer is tested against: both must be real rectangles.
+                print("tab \(state.tabRect) · clickable area \(hitRect)")
             }
             state.forced = true
             try? await Task.sleep(for: .milliseconds(700))
@@ -435,7 +437,11 @@ private struct StackHitRectKey: PreferenceKey {
 
 private struct StackTabRectKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+    // Views without the tab (the list, the backgrounds) report .zero: they mustn't wipe it out.
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
 }
 
 private struct StackRowFramesKey: PreferenceKey {
