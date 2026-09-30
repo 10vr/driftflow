@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.19</title>
+            <pubDate>Wed, 30 Sep 2026 09:28:44 GMT</pubDate>
+            <sparkle:version>202609301728</sparkle:version>
+            <sparkle:shortVersionString>0.2.19</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>The stack&#x27;s tab and the small idle pill no longer use any power while you&#x27;re not pointing at them.</p><p>When your stack is empty and Stack Mode is off, its tab fades away after a few seconds, and comes back as soon as something goes in.</p><p>Transcribe Files no longer gets stuck on a file that was moved, deleted or damaged: it says what&#x27;s wrong instead.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.19/Driftflow-0.2.19-macOS.zip" type="application/octet-stream" sparkle:edSignature="j/qdqGmuOMs8JXxj/nA2L3uHnLL6V1Lj9YjP4t3dTXVLA4YqOwHtocgjos7CkNZM/oJ45BbKc2O+ORjgNGx8Bw==" length="13792245"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.18</title>
             <pubDate>Wed, 30 Sep 2026 08:29:34 GMT</pubDate>
             <sparkle:version>202609301628</sparkle:version>
