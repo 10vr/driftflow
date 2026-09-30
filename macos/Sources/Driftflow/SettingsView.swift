@@ -203,6 +203,9 @@ private struct GeneralPane: View {
                 Picker("Show the stack", selection: $settings.stackTab) {
                     ForEach(StackTabStyle.allCases) { Text($0.label).tag($0) }
                 }
+                Picker("Paste puts in", selection: $settings.stackPaste) {
+                    ForEach(StackPasteChoice.allCases) { Text($0.label).tag($0) }
+                }
             } header: {
                 Text("Stack")
             } footer: {

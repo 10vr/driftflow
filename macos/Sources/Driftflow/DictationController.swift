@@ -450,9 +450,10 @@ final class DictationController: ObservableObject {
         pasteFromStack(item.text, ids: [item.id])
     }
 
-    /// Paste All: the whole stack at your cursor, top to bottom (pinned lines aren't part of it).
+    /// Paste (the stack's paste button): the stack at your cursor, top to bottom, with or without
+    /// the pinned lines (Settings › Stack).
     func pasteAllFromStack() {
-        let items = DictationStack.shared.queue
+        let items = DictationStack.shared.pasteItems
         guard !items.isEmpty else { return }
         pasteFromStack(DictationStack.shared.joined, ids: items.map(\.id))
     }
@@ -507,11 +508,16 @@ final class DictationController: ObservableObject {
     }
 
     /// True only when the app you're in clearly has no text box selected (see `TextBoxCheck`).
+    /// What the app said is logged (its kind of element, never any text), to see why a paste went
+    /// where it did.
     private func nothingToPasteInto() async -> Bool {
         guard accessibilityGranted, !TextInserter.frontmostIsRemoteDesktop,
-              let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
-              pid != ProcessInfo.processInfo.processIdentifier else { return false }
-        return await Task.detached(priority: .userInitiated) { TextBoxCheck.check(pid: pid) == .noTextBox }.value
+              let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
+        let pid = app.processIdentifier
+        let (result, detail) = await Task.detached(priority: .userInitiated) { TextBoxCheck.inspect(pid: pid) }.value
+        AppLog.info("Pasting into \(app.localizedName ?? "an app"): \(result) (\(detail))")
+        return result == .noTextBox
     }
 
     /// Keeps a failed dictation's audio so it can be retried from History (if allowed).

@@ -78,6 +78,27 @@ enum StackTabStyle: String, CaseIterable, Identifiable {
     }
 }
 
+enum StackPasteChoice: String, CaseIterable, Identifiable {
+    case stack
+    case pinsAndStack
+    case pins
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .stack: "The stack"
+        case .pinsAndStack: "Pinned lines, then the stack"
+        case .pins: "Pinned lines only"
+        }
+    }
+}
+
+/// Where a line dragged within the stack would go: above or below another line.
+struct StackDropMarker: Equatable {
+    let id: UUID
+    let above: Bool
+}
+
 struct StackItem: Identifiable, Equatable, Codable {
     var id = UUID()
     let text: String
@@ -130,8 +151,16 @@ final class DictationStack: ObservableObject {
     var pins: [StackItem] { items.filter(\.pinned) }
     /// The stack proper: what Paste All, dragging the tab and Clear work on.
     var queue: [StackItem] { items.filter { !$0.pinned } }
-    /// The queue, in order, as one text.
-    var joined: String { queue.map(\.text).joined(separator: " ") }
+    /// What Paste and dragging the tab put in (Settings › Stack, or the ▾ next to Paste).
+    var pasteItems: [StackItem] {
+        switch AppSettings.shared.stackPaste {
+        case .stack: queue
+        case .pinsAndStack: pins + queue
+        case .pins: pins
+        }
+    }
+    /// Those, in order, as one text.
+    var joined: String { pasteItems.map(\.text).joined(separator: " ") }
 
     @discardableResult
     func add(_ text: String) -> UUID {
@@ -172,6 +201,15 @@ final class DictationStack: ObservableObject {
         if !items[index].pinned, pins.count >= Self.maxPins { return false }
         items[index].pinned.toggle()
         return true
+    }
+
+    /// Dragged within the stack: to just above or below another line (of the same kind).
+    func move(_ id: UUID, to marker: StackDropMarker) {
+        guard id != marker.id, let item = items.first(where: { $0.id == id }) else { return }
+        var reordered = items.filter { $0.id != id }
+        guard let target = reordered.firstIndex(where: { $0.id == marker.id }) else { return }
+        reordered.insert(item, at: marker.above ? target : target + 1)
+        items = reordered
     }
 
     /// Clear: empties the stack; pins stay.
@@ -230,6 +268,10 @@ final class StackPanelState: ObservableObject {
     @Published var keptOpen = false
     /// The lines' natural height, to scroll only when they don't fit.
     @Published var linesHeight: CGFloat = 0
+    /// While a line is dragged within the stack: where it would go.
+    @Published var dropMarker: StackDropMarker?
+    /// A menu from the stack (▾ next to Paste, right-click on the tab) is open: stay open under it.
+    var menuOpen = false
     /// Frames in the panel, reported by SwiftUI: each line (for hover) and the tab.
     var rowFrames: [UUID: CGRect] = [:]
     var tabRect: CGRect = .zero
@@ -277,6 +319,48 @@ final class StackPanel {
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
             .sink { [weak self] _ in self?.place(on: nil) }
             .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)
+            .sink { [weak self] _ in self?.state.menuOpen = true }
+            .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)
+            .sink { [weak self] _ in self?.state.menuOpen = false }
+            .store(in: &cancellables)
+    }
+
+    // MARK: Reordering
+
+    /// A line being dragged: where it would land if dropped here (nil outside the list).
+    func dragMoved(_ id: UUID, to screenPoint: NSPoint) {
+        let marker = self.marker(for: id, at: screenPoint)
+        if state.dropMarker != marker { state.dropMarker = marker }
+    }
+
+    /// Dropped into an app: used. Dropped within the list: moved there.
+    func dragEnded(_ id: UUID, at screenPoint: NSPoint, operation: NSDragOperation) {
+        defer { state.dropMarker = nil }
+        if operation != [] {
+            DictationStack.shared.used([id])
+        } else if let marker = marker(for: id, at: screenPoint) {
+            DictationStack.shared.move(id, to: marker)
+        }
+    }
+
+    private func marker(for id: UUID, at screenPoint: NSPoint) -> StackDropMarker? {
+        guard let panel, let item = DictationStack.shared.items.first(where: { $0.id == id }) else { return nil }
+        let local = CGPoint(x: screenPoint.x - panel.frame.minX, y: panel.frame.maxY - screenPoint.y)
+        // Lines of the same kind (pinned or not), top to bottom.
+        let frames = DictationStack.shared.items.filter { $0.pinned == item.pinned }
+            .compactMap { line in state.rowFrames[line.id].map { (id: line.id, frame: $0) } }
+        guard let first = frames.first, let last = frames.last,
+              local.x > first.frame.minX - 20, local.x < first.frame.maxX + 20,
+              local.y > first.frame.minY - 24, local.y < last.frame.maxY + 24 else { return nil }
+        let marker = frames.first(where: { local.y < $0.frame.midY }).map { StackDropMarker(id: $0.id, above: true) }
+            ?? StackDropMarker(id: last.id, above: false)
+        // Where it already is: nothing to show.
+        let order = frames.map(\.id)
+        guard let from = order.firstIndex(of: id), let to = order.firstIndex(of: marker.id) else { return nil }
+        let destination = marker.above ? to : to + 1
+        return destination == from || destination == from + 1 ? nil : marker
     }
 
     /// Something just went in: bring the tab to the screen you're working on and show it clearly.
@@ -385,13 +469,13 @@ final class StackPanel {
             wasPressed = pressed
             if open {
                 if inside { leftAt = nil } else if leftAt == nil { leftAt = now }
-                if pressed, !pressStartedInside {
+                if pressed, !pressStartedInside, !state.menuOpen {
                     // A click somewhere else: close now.
                     state.keptOpen = false
                     open = false
                 } else {
                     // Dragging a line (or the tab) out keeps it open until the drop.
-                    open = state.keptOpen || inside || pressed || now.timeIntervalSince(leftAt ?? now) < Self.closeAfter
+                    open = state.keptOpen || state.menuOpen || inside || pressed || now.timeIntervalSince(leftAt ?? now) < Self.closeAfter
                 }
             } else {
                 onTabSince = overTab && !pressed ? (onTabSince ?? now) : nil
@@ -499,9 +583,11 @@ final class StackPanel {
             DictationController.capture(region, to: directory.appendingPathComponent("\(name)-open.png"))
             print("lines \(state.linesHeight) pt tall")
             state.hovered = stack.queue.dropFirst().first?.id
+            state.dropMarker = stack.queue.first.map { StackDropMarker(id: $0.id, above: true) } // a line being dragged to the top
             try? await Task.sleep(for: .milliseconds(400))
             DictationController.capture(region, to: directory.appendingPathComponent("\(name)-hover.png"))
             state.hovered = nil
+            state.dropMarker = nil
             settings.stackMode = true
             state.forced = false
             try? await Task.sleep(for: .milliseconds(600))
@@ -583,7 +669,7 @@ struct StackView: View {
 
     private var tab: some View {
         let count = stack.items.count // pinned lines count too: they're in the stack
-        let dropping = stack.queue.count
+        let dropping = stack.pasteItems.count
         return HStack(spacing: 6) {
             Image(systemName: "rectangle.stack.fill")
                 .foregroundStyle(Brand.violet)
@@ -608,7 +694,9 @@ struct StackView: View {
         .overlay {
             StackDragSource(text: stack.joined, preview: dropping == 1 ? stack.joined : "\(dropping) dictations",
                             onClick: { DictationController.shared.toggleStackMode() },
-                            onDropped: { [ids = stack.queue.map(\.id)] in DictationStack.shared.used(ids) },
+                            onEnded: { [ids = stack.pasteItems.map(\.id)] _, operation in
+                                if operation != [] { DictationStack.shared.used(ids) }
+                            },
                             menu: { StackPanel.shared.tabMenu() })
         }
         .background(frame(StackTabRectKey.self))
@@ -648,17 +736,17 @@ struct StackView: View {
                 }
             }
 
-            if !stack.queue.isEmpty {
+            if !stack.items.isEmpty {
                 HStack(spacing: 8) {
-                    textButton("Clear", help: "Empty the stack (pinned lines stay)") { DictationStack.shared.clear() }
+                    if !stack.queue.isEmpty {
+                        textButton("Clear", help: "Empty the stack (pinned lines stay)") { DictationStack.shared.clear() }
+                    }
                     Text("Click or drag a line")
                         .font(.system(size: 11, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
-                    if stack.queue.count > 1 {
-                        textButton("Paste All", help: "Paste the stack at your cursor, top to bottom (pinned lines aren't included). Or drag the tab into a text box.") {
-                            DictationController.shared.pasteAllFromStack()
-                        }
+                    if stack.items.count > 1 {
+                        pasteButton
                     }
                 }
                 .padding(.leading, 4)
@@ -748,12 +836,41 @@ struct StackView: View {
         .overlay(alignment: .leading) {
             StackDragSource(text: item.text, preview: item.text,
                             onClick: { DictationController.shared.paste(fromStack: item) },
-                            onDropped: { DictationStack.shared.used([item.id]) })
+                            onEnded: { point, operation in StackPanel.shared.dragEnded(item.id, at: point, operation: operation) },
+                            onMoved: { point in StackPanel.shared.dragMoved(item.id, to: point) })
                 .padding(.trailing, 52)
+        }
+        // Where a dragged line would go.
+        .overlay(alignment: state.dropMarker?.above == false ? .bottom : .top) {
+            if state.dropMarker?.id == item.id {
+                Capsule().fill(Brand.violet).frame(height: 2).padding(.horizontal, 8).offset(y: state.dropMarker?.above == true ? -2 : 2)
+            }
         }
         .background(GeometryReader { proxy in
             Color.clear.preference(key: StackRowFramesKey.self, value: [item.id: proxy.frame(in: .named("stack"))])
         })
+    }
+
+    /// Paste at your cursor; ▾ chooses what's included (remembered, also in Settings › Stack).
+    private var pasteButton: some View {
+        Menu {
+            Picker("Paste Puts In", selection: $settings.stackPaste) {
+                ForEach(StackPasteChoice.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: "doc.on.clipboard")
+                .font(.system(size: 12, weight: .semibold))
+        } primaryAction: {
+            DictationController.shared.pasteAllFromStack()
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.visible)
+        .fixedSize()
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(.primary.opacity(0.1)))
+        .help("Paste \(settings.stackPaste.label.lowercased()) at your cursor, in order. ▾ to choose. Or drag the tab into a text box.")
     }
 
     private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
@@ -795,7 +912,9 @@ private struct StackDragSource: NSViewRepresentable {
     let text: String
     let preview: String
     let onClick: () -> Void
-    let onDropped: () -> Void
+    /// Where the drag ended, and whether an app took the drop (an empty operation: nothing did).
+    let onEnded: (NSPoint, NSDragOperation) -> Void
+    var onMoved: ((NSPoint) -> Void)?
     var menu: (() -> NSMenu)?
 
     func makeNSView(context: Context) -> StackDragView { StackDragView() }
@@ -804,7 +923,8 @@ private struct StackDragSource: NSViewRepresentable {
         view.text = text
         view.preview = preview
         view.onClick = onClick
-        view.onDropped = onDropped
+        view.onEnded = onEnded
+        view.onMoved = onMoved
         view.makeMenu = menu
     }
 }
@@ -813,7 +933,8 @@ final class StackDragView: NSView, NSDraggingSource {
     var text = ""
     var preview = ""
     var onClick: () -> Void = {}
-    var onDropped: () -> Void = {}
+    var onEnded: (NSPoint, NSDragOperation) -> Void = { _, _ in }
+    var onMoved: ((NSPoint) -> Void)?
     var makeMenu: (() -> NSMenu)?
     private var downAt: NSPoint?
     private var dragging = false
@@ -855,10 +976,14 @@ final class StackDragView: NSView, NSDraggingSource {
         context == .outsideApplication ? .copy : []
     }
 
+    func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
+        onMoved?(screenPoint)
+    }
+
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         dragging = false
         downAt = nil
-        if operation != [] { onDropped() }
+        onEnded(screenPoint, operation)
     }
 
     /// The start of the text on a small card, under the pointer while you drag.

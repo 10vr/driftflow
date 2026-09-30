@@ -52,6 +52,7 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
     /// nil when that can't be told (typed text, a remote desktop, or your clipboard not restored).
     private(set) var pasteTaken: Bool?
     private var pasteCount = 0
+    private var pasteSentAt: ContinuousClock.Instant?
     /// Called when the app reads the last paste's text, however late.
     var onPasteTaken: (() -> Void)?
 
@@ -175,6 +176,7 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
     }
 
     private func sendPaste() {
+        pasteSentAt = .now
         postShortcut(key: Self.keyCode(for: "v") ?? CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
     }
 
@@ -224,6 +226,8 @@ final class TextInserter: NSObject, NSPasteboardItemDataProvider {
                 // so give it a moment before handing the clipboard back.
                 if self.pasteTaken == false {
                     self.pasteTaken = true
+                    let after = self.pasteSentAt.map { ContinuousClock.now - $0 } ?? .zero
+                    AppLog.info("The pasted text was read \(after.components.seconds * 1000 + after.components.attoseconds / 1_000_000_000_000_000) ms after ⌘V")
                     self.onPasteTaken?()
                     self.onPasteTaken = nil
                 }

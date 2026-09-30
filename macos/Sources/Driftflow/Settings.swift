@@ -130,6 +130,8 @@ final class AppSettings: ObservableObject {
     @Published var stackTab: StackTabStyle { didSet { defaults.set(stackTab.rawValue, forKey: "stackTab") } }
     /// Every dictation goes into the stack instead of being pasted.
     @Published var stackMode: Bool { didSet { defaults.set(stackMode, forKey: "stackMode") } }
+    /// What Paste (and dragging the stack's tab) puts in: the stack, pinned lines, or both.
+    @Published var stackPaste: StackPasteChoice { didSet { defaults.set(stackPaste.rawValue, forKey: "stackPaste") } }
     /// Microphones in order of preference: Driftflow records from the first one that's connected.
     /// "System default" (uid "") is an entry too, always available, so it can be ranked anywhere.
     @Published var micPriority: [MicPreference] {
@@ -187,6 +189,7 @@ final class AppSettings: ObservableObject {
             "showIdlePill": false,
             "stackTab": StackTabStyle.faded.rawValue,
             "stackMode": false,
+            "stackPaste": StackPasteChoice.stack.rawValue,
             "keepFailedAudio": true,
             "duckAudio": true,
             "aiStyle": AIStyle.literal.rawValue,
@@ -218,6 +221,7 @@ final class AppSettings: ObservableObject {
         showIdlePill = defaults.bool(forKey: "showIdlePill")
         stackTab = StackTabStyle(rawValue: defaults.string(forKey: "stackTab") ?? "") ?? .faded
         stackMode = defaults.bool(forKey: "stackMode")
+        stackPaste = StackPasteChoice(rawValue: defaults.string(forKey: "stackPaste") ?? "") ?? .stack
         keepFailedAudio = defaults.bool(forKey: "keepFailedAudio")
         duckAudio = defaults.bool(forKey: "duckAudio")
         pasteLastShortcut = defaults.object(forKey: "pasteLastShortcut") == nil ? .pasteLastDefault : Self.combo(defaults, "pasteLastShortcut")
