@@ -519,8 +519,10 @@ final class DictationController: ObservableObject {
               let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
         let pid = app.processIdentifier
+        let started = ContinuousClock.now
         let (result, detail) = await Task.detached(priority: .userInitiated) { TextBoxCheck.inspect(pid: pid) }.value
-        AppLog.info("Pasting into \(app.localizedName ?? "an app"): \(result) (\(detail))")
+        let took = ContinuousClock.now - started
+        AppLog.info("Pasting into \(app.localizedName ?? "an app"): \(result) (\(detail); checked in \(took.components.attoseconds / 1_000_000_000_000_000) ms)")
         return result == .noTextBox
     }
 

@@ -429,7 +429,15 @@ final class StackPanel {
     private var panel: NSPanel?
     private let canvas = NSSize(width: 410, height: 660)
     private var hitRect: CGRect = .zero
+    /// Follows the pointer every frame, only while it's on the tab or the list is open.
     private var timer: Timer?
+    private var host: NSHostingView<StackView>?
+    /// Where the whole canvas sits on screen (bottom-left), whatever size the window is now.
+    private var canvasOrigin = NSPoint.zero
+    /// Closed, the window is just the tab: nothing to watch until the pointer enters it (macOS
+    /// says so), and no transparent area to pass clicks through.
+    private var collapsed = true
+    private var collapseWork: DispatchWorkItem?
     private var leftAt: Date?
     private var onTabSince: Date?
     private var wasPressed = false
@@ -484,8 +492,8 @@ final class StackPanel {
     }
 
     private func marker(for id: UUID, at screenPoint: NSPoint) -> StackDropMarker? {
-        guard let panel, let item = DictationStack.shared.items.first(where: { $0.id == id }) else { return nil }
-        let local = CGPoint(x: screenPoint.x - panel.frame.minX, y: panel.frame.maxY - screenPoint.y)
+        guard let item = DictationStack.shared.items.first(where: { $0.id == id }) else { return nil }
+        let local = self.local(screenPoint)
         // Lines of the same kind (pinned or not), top to bottom.
         let frames = DictationStack.shared.items.filter { $0.pinned == item.pinned }
             .compactMap { line in state.rowFrames[line.id].map { (id: line.id, frame: $0) } }
@@ -532,8 +540,8 @@ final class StackPanel {
         state.hovered = nil
         leftAt = nil
         onTabSince = nil
-        panel?.ignoresMouseEvents = true
-        track(fast: false)
+        collapseSoon()
+        stopFollowing()
         if AppSettings.shared.stackTab == .hidden { refresh() }
     }
 
@@ -556,12 +564,11 @@ final class StackPanel {
             state.keptOpen = false
             state.expanded = false
             panel?.orderOut(nil)
-            timer?.invalidate()
-            timer = nil
+            stopFollowing()
             return
         }
         guard panel?.isVisible != true else {
-            if state.keptOpen { track(fast: true) }
+            if state.keptOpen { expand(); follow() }
             return
         }
         let panel = panel ?? makePanel()
@@ -569,32 +576,83 @@ final class StackPanel {
         place(on: nil)
         panel.appearance = HUDController.systemAppearance
         panel.orderFrontRegardless()
-        track(fast: state.keptOpen)
+        if state.keptOpen { expand(); follow() }
     }
 
     func place(on screen: NSScreen?) {
-        guard let panel, let screen = screen ?? HUDController.activeScreen() else { return }
+        guard panel != nil, let screen = screen ?? HUDController.activeScreen() else { return }
         let visible = screen.visibleFrame
-        panel.setFrameOrigin(NSPoint(x: visible.maxX - canvas.width, y: visible.minY))
+        canvasOrigin = NSPoint(x: visible.maxX - canvas.width, y: visible.minY)
+        applyFrame()
     }
 
-    /// 20 times a second while closed (only to notice the pointer arriving), every frame while open.
-    private func track(fast: Bool) {
-        let interval = fast ? 1.0 / 60 : 0.05
-        if let timer, timer.isValid, timer.timeInterval == interval { return }
-        timer?.invalidate()
-        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+    /// Closed: the window is the tab (with room for its shadow), the content shifted so the tab
+    /// stays exactly where it is. Open: the whole canvas. The content never re-lays out either way.
+    private func applyFrame() {
+        guard let panel, let host else { return }
+        if collapsed, state.tabRect != .zero {
+            let tab = state.tabRect.insetBy(dx: -14, dy: -14) // the tab's shadow fits inside
+            panel.setFrame(NSRect(x: canvasOrigin.x + tab.minX, y: canvasOrigin.y + canvas.height - tab.maxY,
+                                  width: tab.width, height: tab.height), display: true)
+            host.frame = NSRect(x: -tab.minX, y: -(canvas.height - tab.maxY), width: canvas.width, height: canvas.height)
+            panel.ignoresMouseEvents = false
+        } else {
+            panel.setFrame(NSRect(origin: canvasOrigin, size: canvas), display: true)
+            host.frame = NSRect(origin: .zero, size: canvas)
+        }
+    }
+
+    /// The tab changed size (its count, "Stacking"): the closed window follows it.
+    func tabResized() {
+        if collapsed { applyFrame() }
+    }
+
+    private func expand() {
+        collapseWork?.cancel()
+        guard collapsed else { return }
+        collapsed = false
+        applyFrame()
+    }
+
+    /// After the list's closing animation, back to just the tab.
+    private func collapseSoon() {
+        collapseWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.state.expanded, !self.collapsed else { return }
+            self.collapsed = true
+            self.applyFrame()
+        }
+        collapseWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+    }
+
+    /// A screen point in the canvas's coordinates (SwiftUI's: top-left origin).
+    private func local(_ point: NSPoint) -> CGPoint {
+        CGPoint(x: point.x - canvasOrigin.x, y: canvasOrigin.y + canvas.height - point.y)
+    }
+
+    /// Within reach of the tab: worth following closely.
+    private func isNearTab() -> Bool {
+        state.tabRect.insetBy(dx: -24, dy: -24).contains(local(NSEvent.mouseLocation))
+    }
+
+    private func follow() {
+        guard timer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             onMainThread { self?.tick() }
         }
-        timer.tolerance = fast ? 0 : 0.02
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
 
+    private func stopFollowing() {
+        timer?.invalidate()
+        timer = nil
+    }
+
     private func tick() {
         guard let panel else { return }
-        let mouse = NSEvent.mouseLocation
-        let local = CGPoint(x: mouse.x - panel.frame.minX, y: panel.frame.maxY - mouse.y) // SwiftUI: top-left origin
+        let local = self.local(NSEvent.mouseLocation)
         let now = Date()
         let overTab = state.tabRect.insetBy(dx: -4, dy: -4).contains(local)
         var open = state.expanded
@@ -622,17 +680,23 @@ final class StackPanel {
             }
             if !open { leftAt = nil }
         }
-        // Clicks reach the tab even before the list opens.
-        let takesClicks = open || overTab
-        if panel.ignoresMouseEvents == takesClicks { panel.ignoresMouseEvents = !takesClicks }
+        if open { expand() }
+        // Open, clicks pass through everywhere but the list and the tab. (Closed, the window is
+        // only the tab.)
+        if !collapsed {
+            let takesClicks = open || overTab
+            if panel.ignoresMouseEvents == takesClicks { panel.ignoresMouseEvents = !takesClicks }
+        }
         if state.expanded != open {
             state.expanded = open
-            track(fast: open)
+            if !open { collapseSoon() }
             if !open, AppSettings.shared.stackTab == .hidden { refresh() } // opened from the menu only
         }
         guard state.forced == nil else { return }
         let row = open ? state.rowFrames.first(where: { $0.value.contains(local) })?.key : nil
         if state.hovered != row { state.hovered = row }
+        // Closed, and the pointer has moved away: nothing to follow until it enters the tab again.
+        if !open, !isNearTab() { stopFollowing() }
     }
 
     private func makePanel() -> NSPanel {
@@ -651,7 +715,11 @@ final class StackPanel {
             self?.hitRect = rect
         })
         host.frame = NSRect(origin: .zero, size: canvas)
-        panel.contentView = host
+        let container = PointerWatchingView(frame: NSRect(origin: .zero, size: canvas))
+        container.onEnter = { [weak self] in self?.follow() }
+        container.addSubview(host)
+        panel.contentView = container
+        self.host = host
         return panel
     }
 
@@ -683,6 +751,18 @@ final class StackPanel {
     /// `--stack-demo <folder>`: the tab and the open list over black and white, captured to PNGs.
     /// Run with DRIFTFLOW_DATA_DIR set, so the demo's lines don't land in your real stack.
     func runDemo(to directory: URL) async {
+        // DRIFTFLOW_DEMO_IDLE=<seconds>: only the closed tab on screen that long, to measure what it
+        // costs while you're not using it (sample the process with `top`).
+        if let seconds = ProcessInfo.processInfo.environment["DRIFTFLOW_DEMO_IDLE"].flatMap(Double.init) {
+            if DictationStack.shared.items.isEmpty { DictationStack.shared.add("A line to show the tab") }
+            DictationStack.shared.show()
+            start()
+            state.peeking = false
+            print("tab showing for \(Int(seconds)) s, pid \(ProcessInfo.processInfo.processIdentifier)")
+            try? await Task.sleep(for: .seconds(seconds))
+            NSApp.terminate(nil)
+            return
+        }
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
         let settings = AppSettings.shared
@@ -717,12 +797,14 @@ final class StackPanel {
                 settings.stackTab = style
                 state.forced = false
                 state.peeking = false
+                follow()
                 try? await Task.sleep(for: .milliseconds(600))
                 DictationController.capture(region, to: directory.appendingPathComponent("\(name)-tab-\(style.rawValue).png"))
                 // What the pointer is tested against: both must be real rectangles.
                 print("tab \(state.tabRect) · clickable area \(hitRect)")
             }
             state.forced = true
+            follow()
             try? await Task.sleep(for: .milliseconds(700))
             DictationController.capture(region, to: directory.appendingPathComponent("\(name)-open.png"))
             print("lines \(state.linesHeight) pt tall")
@@ -734,6 +816,7 @@ final class StackPanel {
             state.dropMarker = nil
             settings.stackMode = true
             state.forced = false
+            follow()
             try? await Task.sleep(for: .milliseconds(600))
             DictationController.capture(region, to: directory.appendingPathComponent("\(name)-tab-stacking.png"))
         }
@@ -812,7 +895,10 @@ struct StackView: View {
         }
         .coordinateSpace(name: "stack")
         .onPreferenceChange(StackHitRectKey.self) { reportHitRect($0) }
-        .onPreferenceChange(StackTabRectKey.self) { state.tabRect = $0 }
+        .onPreferenceChange(StackTabRectKey.self) { rect in
+            state.tabRect = rect
+            StackPanel.shared.tabResized()
+        }
         .onPreferenceChange(StackRowFramesKey.self) { state.rowFrames = $0 }
         .onPreferenceChange(StackLinesHeightKey.self) { height in
             if abs(height - state.linesHeight) > 0.5 { state.linesHeight = height }
@@ -846,7 +932,7 @@ struct StackView: View {
         .padding(.horizontal, 13)
         .frame(height: 30)
         .modifier(Capsule().surface(tint: settings.stackMode ? Brand.violet.opacity(0.22) : nil))
-        .shadow(color: .black.opacity(faded ? 0 : 0.16), radius: 10, y: 4)
+        .shadow(color: .black.opacity(faded ? 0 : 0.16), radius: 7, y: 3)
         .opacity(faded ? 0.4 : 1)
         // Click: Stack Mode on or off. Drag: drop the whole stack, in order. Right-click: Hide Stack.
         .overlay {
@@ -1132,6 +1218,20 @@ struct StackView: View {
             Color.clear.preference(key: key, value: proxy.frame(in: .named("stack")))
         }
     }
+}
+
+/// The panel's content: tells when the pointer enters the window (the tab, while it's closed).
+/// macOS does the watching, so nothing runs while the pointer is elsewhere.
+private final class PointerWatchingView: NSView {
+    var onEnter: () -> Void = {}
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { onEnter() }
 }
 
 /// Clicking pastes (on the tab: switches Stack Mode); dragging drops the text wherever you let go,

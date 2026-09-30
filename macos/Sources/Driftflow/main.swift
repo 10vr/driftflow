@@ -443,7 +443,19 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
     // stack. Read-only: nothing is focused, typed or copied.
     print("Accessibility:", AXIsProcessTrusted() ? "on" : "off")
     for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
-        let (result, detail) = TextBoxCheck.inspect(pid: app.processIdentifier)
+        // Timed: this runs before every paste.
+        let clock = ContinuousClock()
+        var runs: [Duration] = []
+        var inspected: (result: TextBoxCheck.Result, detail: String) = (.unknown, "")
+        for _ in 0..<5 {
+            let started = clock.now
+            inspected = TextBoxCheck.inspect(pid: app.processIdentifier)
+            runs.append(clock.now - started)
+        }
+        let (result, detail) = inspected
+        let slowest = runs.max() ?? .zero
+        print(String(format: "  check: %.1f ms typical, %.1f ms slowest of 5",
+                     Double(runs.sorted()[2].components.attoseconds) / 1e15, Double(slowest.components.attoseconds) / 1e15))
         let front = app.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier ? " [in front]" : ""
         print("\(app.localizedName ?? "?") (\(app.bundleIdentifier ?? ""))\(front) → \(result) · \(detail)")
     }
