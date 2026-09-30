@@ -597,6 +597,7 @@ final class DictationController: ObservableObject {
         case .chooseMicrophone: openSettings(.general)
         case .openHistory: openSettings(.history)
         case .installUpdate: Updater.shared.installNow()
+        case .openStacks: openSettings(.stacks)
         case .addToVocabulary(let term):
             let terms = settings.vocabularyTerms
             if !terms.contains(where: { $0.caseInsensitiveCompare(term) == .orderedSame }) {

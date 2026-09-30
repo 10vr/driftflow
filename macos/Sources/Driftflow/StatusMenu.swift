@@ -131,6 +131,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(command("Open Stack", enabled: hasDictations || !DictationStack.shared.items.isEmpty || settings.stackMode) {
             StackPanel.shared.open()
         })
+        menu.addItem(command("Saved Stacks…") { [controller] in controller.openSettings(.stacks) })
 
         menu.addItem(.separator())
         menu.addItem(command("Transcribe Audio Files…") { FilesWindow.shared.show() })

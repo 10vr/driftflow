@@ -168,6 +168,7 @@ struct HUDToast: Equatable {
         case openHistory
         case addToVocabulary(String)
         case installUpdate
+        case openStacks
     }
 
     var id = UUID()
@@ -181,6 +182,7 @@ struct HUDToast: Equatable {
         case .openHistory: "View History"
         case .addToVocabulary: "Add"
         case .installUpdate: "Restart Now"
+        case .openStacks: "View"
         case nil: nil
         }
     }

@@ -212,6 +212,31 @@ final class DictationStack: ObservableObject {
         items = reordered
     }
 
+    /// The Stacks page: reordering by dragging in its lists.
+    func moveQueue(from source: IndexSet, to destination: Int) {
+        var queue = self.queue
+        queue.move(fromOffsets: source, toOffset: destination)
+        items = pins + queue
+    }
+
+    func movePins(from source: IndexSet, to destination: Int) {
+        var pins = self.pins
+        pins.move(fromOffsets: source, toOffset: destination)
+        items = pins + queue
+    }
+
+    /// Save Stack: the stack's lines leave (to be saved); pins stay.
+    func takeQueue() -> [StackItem] {
+        let taken = queue
+        clear()
+        return taken
+    }
+
+    /// Use Again: a saved stack's lines become the stack.
+    func load(_ lines: [StackItem]) {
+        items = pins + lines.map { var line = $0; line.pinned = false; return line }
+    }
+
     /// Clear: empties the stack; pins stay.
     func clear() { items.removeAll { !$0.pinned } }
 
@@ -530,6 +555,10 @@ final class StackPanel {
         let mode = item("Stack Mode") { DictationController.shared.toggleStackMode() }
         mode.state = AppSettings.shared.stackMode ? .on : .off
         menu.addItem(mode)
+        let save = item("Save Stack") { StackPanel.shared.saveCurrentStack() }
+        save.isEnabled = !DictationStack.shared.queue.isEmpty
+        menu.addItem(save)
+        menu.addItem(item("Saved Stacks…") { DictationController.shared.openSettings(.stacks) })
         menu.addItem(.separator())
         menu.addItem(item("Hide Stack") { StackPanel.shared.hide() })
         return menu
@@ -593,6 +622,14 @@ final class StackPanel {
             try? await Task.sleep(for: .milliseconds(600))
             DictationController.capture(region, to: directory.appendingPathComponent("\(name)-tab-stacking.png"))
         }
+        backdrop.orderOut(nil)
+        // The Stacks page, with one saved stack and the current one.
+        StackLibrary.shared.saveCurrent()
+        for text in ["Call me back when you can, thanks.", "The files for the shoot are in the shared folder."] { stack.add(text) }
+        DictationController.shared.openSettings(.stacks)
+        try? await Task.sleep(for: .seconds(1.5))
+        FilesWindow.capture(NSApp.windows.first { $0.isVisible && $0.title == SettingsView.Pane.stacks.title },
+                            to: directory.appendingPathComponent("stacks-page.png"))
         settings.stackTab = saved.0
         settings.stackMode = saved.1
         if saved.2 { stack.hide() }
@@ -713,6 +750,11 @@ struct StackView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                if !stack.queue.isEmpty {
+                    iconButton("square.and.arrow.down", help: "Save this stack for later and start a new one (Saved Stacks in the main window)") {
+                        StackPanel.shared.saveCurrentStack()
+                    }
+                }
                 iconButton("xmark", help: "Close (Esc)") { StackPanel.shared.close() }
             }
             .padding(.leading, 10)

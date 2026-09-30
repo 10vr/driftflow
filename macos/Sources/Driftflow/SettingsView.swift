@@ -19,10 +19,10 @@ struct SettingsView: View {
 
     enum Pane: String, CaseIterable, Identifiable {
         /// Your dictations and transcribed files, above the settings.
-        case history, files
+        case history, stacks, files
         case general, shortcuts, models, output, styles, vocabulary, permissions
 
-        static let content: [Pane] = [.history, .files]
+        static let content: [Pane] = [.history, .stacks, .files]
         static let settings: [Pane] = [.general, .shortcuts, .models, .output, .styles, .vocabulary, .permissions]
 
         var id: String { rawValue }
@@ -37,6 +37,7 @@ struct SettingsView: View {
             case .vocabulary: "Vocabulary"
             case .history: "History"
             case .files: "Files"
+            case .stacks: "Stacks"
             case .permissions: "Permissions"
             }
         }
@@ -52,6 +53,7 @@ struct SettingsView: View {
             case .vocabulary: "Names, jargon, replacements and snippets"
             case .history: "Everything you've dictated, kept on this Mac"
             case .files: "Transcripts of audio and video files, made on this Mac"
+            case .stacks: "The stack you're adding to, and the ones you saved for later"
             case .permissions: "What Driftflow needs, and why"
             }
         }
@@ -66,6 +68,7 @@ struct SettingsView: View {
             case .vocabulary: "character.book.closed"
             case .history: "clock.arrow.circlepath"
             case .files: "waveform"
+            case .stacks: "rectangle.stack"
             case .permissions: "lock.shield"
             }
         }
@@ -93,6 +96,7 @@ struct SettingsView: View {
                 case .vocabulary: VocabularyPane(settings: settings)
                 case .history: HistoryPane(settings: settings)
                 case .files: FilesPane()
+                case .stacks: StacksPane()
                 case .permissions: PermissionsPane(controller: controller)
                 }
             }
@@ -100,8 +104,8 @@ struct SettingsView: View {
             .navigationTitle((router.pane ?? .general).title)
             .navigationSubtitle((router.pane ?? .general).subtitle)
         }
-        // Files has a list and a transcript side by side, so the window widens for it.
-        .frame(minWidth: router.pane == .files ? 950 : 780, idealWidth: 780, minHeight: 600, idealHeight: 600)
+        // Files and Stacks have a list and a detail side by side, so the window widens for them.
+        .frame(minWidth: router.pane == .files || router.pane == .stacks ? 950 : 780, idealWidth: 780, minHeight: 600, idealHeight: 600)
         .background(StandardWindowButtons())
     }
 }
