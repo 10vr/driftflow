@@ -247,7 +247,7 @@ final class AppSettings: ObservableObject {
             "spokenCommands": true,
             "micMode": MicMode.onDemand.rawValue,
             "historyRetention": HistoryRetention.month.rawValue,
-            "soundStyle": SoundStyle.bells.rawValue,
+            "soundStyle": SoundStyle.minimal.rawValue, // the default sound (Soft Bells before 0.2.26)
             "accuracyModel": AccuracyModel.parakeetUnified.rawValue,
             "livePreview": LivePreviewSource.finalModel.rawValue,
             "hudPosition": HUDPosition.bottom.rawValue,
@@ -323,7 +323,7 @@ final class AppSettings: ObservableObject {
         accuracyModel = AccuracyModel(rawValue: defaults.string(forKey: "accuracyModel") ?? "") ?? .parakeetUnified
         // "handyPop" was the earlier Pop set (Handy's sounds), now Driftflow's own.
         let savedSound = defaults.string(forKey: "soundStyle") ?? ""
-        soundStyle = SoundStyle(rawValue: savedSound == "handyPop" ? "pop" : savedSound) ?? .bells
+        soundStyle = SoundStyle(rawValue: savedSound == "handyPop" ? "pop" : savedSound) ?? .minimal
         historyRetention = HistoryRetention(rawValue: defaults.string(forKey: "historyRetention") ?? "") ?? .month
         micMode = MicMode(rawValue: defaults.string(forKey: "micMode") ?? "") ?? .onDemand
         hudPosition = HUDPosition(rawValue: defaults.string(forKey: "hudPosition") ?? "") ?? .bottom

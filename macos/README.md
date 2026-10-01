@@ -78,7 +78,7 @@ The first launch opens a setup window for Microphone and Accessibility access, t
   - filler-word removal
   - voice commands ("new line", "new paragraph", "scratch that": deletes the sentence just said, or, said first, removes the previous dictation from the app if its text is still exactly as typed)
   - open at login (on by default)
-  - 5 sound sets: Classic, Soft Bells, Glass, Minimal, Pop
+  - 5 sound sets: Minimal (the default), Classic, Soft Bells, Glass, Pop
   - smart spacing
   - paste or typed insertion
   - searchable history
