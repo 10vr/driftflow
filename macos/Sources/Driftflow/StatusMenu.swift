@@ -90,6 +90,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let hasDictations = history.entries.contains { $0.status == nil }
         let setupNeeded = !controller.accessibilityGranted || Permissions.microphone != .authorized
 
+        // The main window: History, Stacks and Files, with Settings below them.
+        menu.addItem(command("Open Driftflow") { [controller] in controller.openSettings(.history) })
+        menu.addItem(.separator())
+
         if let version = Updater.shared.readyVersion {
             let update = command("Restart to Update to \(version)") { Updater.shared.installNow() }
             update.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: nil)?
