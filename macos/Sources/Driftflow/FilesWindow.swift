@@ -359,6 +359,10 @@ final class FilesWindow {
         }
         DictationController.shared.resetOnboardingWindow()
         UserDefaults.standard.set(saved, forKey: "onboardingStep")
+        WhatsNewWindow.shared.show()
+        try? await Task.sleep(for: .seconds(1.5))
+        Self.capture(WhatsNewWindow.shared.window, to: directory.appendingPathComponent("whats-new.png"))
+        WhatsNewWindow.shared.close()
 
         // The Settings window, title bar included (to check the window buttons' placement).
         DictationController.shared.openSettings(.general)

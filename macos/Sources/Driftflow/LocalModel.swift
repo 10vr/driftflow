@@ -154,6 +154,8 @@ final class TextModelManager: ObservableObject {
     static let shared = TextModelManager()
 
     @Published private(set) var status: [TextModel: ModelManager.Status] = [:]
+    /// Posted with the model when a download finishes (here or in the other app, while this one waited).
+    static let downloaded = Notification.Name("TextModelDownloaded")
     /// Models the other app is downloading right now (this one waits for it to finish).
     @Published private(set) var downloadingElsewhere: Set<TextModel> = []
 
@@ -331,6 +333,7 @@ final class TextModelManager: ObservableObject {
                     AppLog.info("\(model.displayName): the other app finished downloading it")
                     Self.markUsed(model)
                     self.status[model] = .downloaded
+                    NotificationCenter.default.post(name: Self.downloaded, object: model)
                 } else {
                     self.status[model] = .notDownloaded
                     self.download(model)
@@ -371,6 +374,7 @@ final class TextModelManager: ObservableObject {
                 Self.markUsed(model)
                 AppLog.info("\(model.displayName): downloaded and verified")
                 status[model] = .downloaded
+                NotificationCenter.default.post(name: Self.downloaded, object: model)
             } catch {
                 status[model] = .failed(error.localizedDescription)
             }

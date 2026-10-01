@@ -99,6 +99,8 @@ The first launch opens a setup window for Microphone and Accessibility access, t
 
   Qwen and Gemma run with [llama.cpp](https://github.com/ggml-org/llama.cpp) on the GPU, so dictation (Parakeet, on the Neural Engine) isn't slowed. The model loads when a dictation with a style starts (its instructions are read while you're still talking), and is freed after 5 idle minutes or when macOS runs low on memory. New installs start with Qwen; on a Mac with 8 GB, Apple Intelligence is suggested first where it's available, since a 3 GB model makes an 8 GB Mac swap. Until the chosen model is downloaded, Apple Intelligence fills in where it can. The files come from Hugging Face, pinned to a revision and checked by SHA-256, into a folder shared with Driftline (see [Models shared with Driftline](#models-shared-with-driftline)).
 
+  People who set up Driftflow before it had its own models see a What's New window once after updating (the same examples and model choice, with Download or Not Now); nothing is downloaded without asking, and Apple Intelligence keeps working until a model is ready.
+
   Examples: setup's AI writing step shows a real Styles rewrite and a real voice edit; Settings › AI Model has a Try it box (any downloaded model, any style or an edit instruction, on your own words, without changing your setting); and while you edit by voice, the pill suggests what to say ("make it shorter", "turn this into bullet points"…).
 - **Apps and websites:** a rule per app, or per site in Safari/Chrome/Arc/Edge/Brave (read from the page's address through Accessibility). A rule can set:
   - a style;

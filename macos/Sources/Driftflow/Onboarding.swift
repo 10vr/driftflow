@@ -728,6 +728,8 @@ private struct StepRow: View {
 /// optional and happens in the background.
 private struct AIModelStep: View {
     @ObservedObject var settings: AppSettings
+    /// The download button and progress under the list (the What's New window has its own button).
+    var showsStatus = true
     @ObservedObject private var models = TextModelManager.shared
 
     var body: some View {
@@ -765,11 +767,13 @@ private struct AIModelStep: View {
                 }
                 .buttonStyle(.plain)
             }
-            HStack(spacing: 10) {
-                statusView
-                Spacer()
+            if showsStatus {
+                HStack(spacing: 10) {
+                    statusView
+                    Spacer()
+                }
+                .padding(.top, 6)
             }
-            .padding(.top, 6)
             if !TextModel.hasComfortableMemory {
                 Text("This Mac has \(ProcessInfo.processInfo.physicalMemory >> 30) GB of memory: Qwen and Gemma use about 3 GB while they work, which can slow other apps. Apple Intelligence needs none.")
                     .font(.caption)
@@ -844,5 +848,129 @@ private struct AIExampleCard: View {
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading) // as tall as the taller card
         .glassSurface(in: .rect(cornerRadius: 12))
+    }
+}
+
+// MARK: - What's new
+
+/// Once after an update, for people who set up Driftflow before it had its own AI models: what the
+/// AI model does, and the choice to download one or not. New installs see the same in setup.
+@MainActor
+final class WhatsNewWindow {
+    static let shared = WhatsNewWindow()
+    private(set) var window: NSWindow?
+
+    func show() {
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+            return
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: 560),
+                              styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.title = "What's New in Driftflow"
+        let toolbar = NSToolbar(identifier: "whatsNew")
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: WhatsNewView(settings: .shared) { [weak self] in self?.close() })
+        window.center()
+        self.window = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
+    func close() {
+        window?.close()
+        window = nil
+    }
+}
+
+private struct WhatsNewView: View {
+    @ObservedObject var settings: AppSettings
+    @ObservedObject private var models = TextModelManager.shared
+    let done: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("NEW IN DRIFTFLOW")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .tracking(0.8)
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.bottom, 8)
+                Text("AI writing, on your Mac")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .padding(.bottom, 10)
+                Text("Driftflow now has its own AI model. It tidies what you say into a style (Clean, Professional or Casual) and changes selected text when you tell it how, and it's more careful with your words than Apple Intelligence. It's a one-time download; until then, nothing changes.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Label("It runs on this Mac: nothing you say leaves it. Change it any time in Settings › AI Model.", systemImage: "lock.shield")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 18)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                HStack {
+                    Button("Not Now", action: done)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button(primaryTitle, action: primary)
+                        .glassProminentButtonStyle()
+                        .controlSize(.large)
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 44)
+            .padding(.bottom, 32)
+            .frame(width: 400)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(.background.secondary)
+                    .overlay(
+                        ZStack {
+                            RadialGradient(colors: [Brand.pink.opacity(0.10), .clear], center: .topTrailing, startRadius: 10, endRadius: 380)
+                            RadialGradient(colors: [Brand.cyan.opacity(0.09), .clear], center: .bottomLeading, startRadius: 10, endRadius: 380)
+                        }
+                        .clipShape(.rect(cornerRadius: 24))
+                    )
+                AIModelStep(settings: settings, showsStatus: false)
+                    .padding(28)
+            }
+            .clipShape(.rect(cornerRadius: 24))
+            .padding(20)
+        }
+        .frame(width: 880, height: 560)
+    }
+
+    private var primaryTitle: String {
+        let model = settings.textModel
+        if model.needsDownload {
+            if case .downloading = models.status(of: model) { return "Done" }
+            return models.isDownloaded(model) ? "Use \(model.displayName)" : "Download \(model.displayName) (\(model.downloadSize))"
+        }
+        return TextModel.appleModelUsable ? "Use Apple Intelligence" : "Done"
+    }
+
+    private func primary() {
+        let model = settings.textModel
+        switch models.status(of: model) {
+        case .notDownloaded, .failed:
+            models.download(model)
+            DictationController.shared.showToast(
+                HUDToast(icon: "arrow.down.circle", text: "Downloading \(model.displayName) in the background. It takes over when it's ready."), for: 5)
+        case .downloading, .downloaded:
+            break
+        }
+        done()
     }
 }

@@ -253,11 +253,18 @@ final class DictationController: ObservableObject {
         if microphoneAuthorized { applyMicMode(settings.micMode) }
         _ = TextModelManager.shared // moves models from older versions' folder into the shared one, now
         if !microphoneAuthorized || !accessibilityGranted {
-            UserDefaults.standard.set(true, forKey: Self.suggestedModelKey) // setup's AI model step covers it
+            UserDefaults.standard.set(true, forKey: Self.whatsNewKey) // setup's AI writing step covers it
             showOnboarding()
         } else {
-            suggestLocalModelOnce()
+            showWhatsNewOnce()
         }
+        NotificationCenter.default.publisher(for: TextModelManager.downloaded)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] note in
+                guard let self, let model = note.object as? TextModel, model == self.settings.textModel, self.phase == .idle else { return }
+                self.showToast(HUDToast(icon: "checkmark.circle", text: "\(model.displayName) is ready. AI Styles and editing by voice use it now."), for: 5)
+            }
+            .store(in: &cancellables)
         prewarm()
         loadAccuracyModel(settings.accuracyModel)
         // A Mac language with no on-device speech model falls back to English.
@@ -282,20 +289,22 @@ final class DictationController: ObservableObject {
         onboarding.show(controller: self)
     }
 
-    private static let suggestedModelKey = "suggestedTextModel"
+    private static let whatsNewKey = "shownAIModelWhatsNew"
 
-    /// Once, for people who set up Driftflow before it had its own AI models: says the recommended
-    /// one is available (it's never downloaded without asking).
-    private func suggestLocalModelOnce() {
-        guard !UserDefaults.standard.bool(forKey: Self.suggestedModelKey) else { return }
-        UserDefaults.standard.set(true, forKey: Self.suggestedModelKey)
-        let model = settings.textModel
-        guard model != .apple, !TextModelManager.shared.isDownloaded(model) else { return }
+    /// Once, for people who set up Driftflow before it had its own AI models: the What's New window,
+    /// to download one or not (nothing is downloaded without asking). Not for someone who already has
+    /// one, and never in the middle of a dictation.
+    private func showWhatsNewOnce() {
+        guard !UserDefaults.standard.bool(forKey: Self.whatsNewKey) else { return }
+        guard !TextModel.allCases.contains(where: { $0.needsDownload && TextModelManager.shared.isDownloaded($0) }) else {
+            UserDefaults.standard.set(true, forKey: Self.whatsNewKey)
+            return
+        }
         Task {
-            try? await Task.sleep(for: .seconds(4))
-            guard phase == .idle else { return }
-            showToast(HUDToast(icon: "sparkles", text: "New: \(model.displayName), a more careful AI model for Styles and editing by voice. Runs on this Mac (\(model.downloadSize)).",
-                               action: .chooseAIModel), for: 12)
+            try? await Task.sleep(for: .seconds(5))
+            while phase != .idle { try? await Task.sleep(for: .seconds(5)) }
+            UserDefaults.standard.set(true, forKey: Self.whatsNewKey)
+            WhatsNewWindow.shared.show()
         }
     }
 
