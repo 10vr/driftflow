@@ -40,8 +40,8 @@
 - **History.** Every dictation is kept on your computer for 30 days (adjustable), searchable and easy to copy.
 - **Updates itself.** New versions download quietly and install when you quit the app.
 - **The Stack.** Dictate now, paste later. Dictations wait in a small stack at the corner of your screen until you click or drag them where they belong, and nothing is lost when there's no text box to type into (in most apps). [More below](#the-stack).
-- **AI Styles.** Apple's on-device model can tidy your dictation into Clean, Professional or Casual writing, with per-app and per-website rules (macOS 26 with Apple Intelligence).
-- **Edit by voice.** Select text, press ⌃⌥E and say what to change: "make this shorter", "turn this into bullet points" (macOS 26 with Apple Intelligence).
+- **AI Styles.** An AI model running on your Mac tidies your dictation into Clean, Professional or Casual writing, with per-app and per-website rules. [Which model?](#ai-models)
+- **Edit by voice.** Select text, press ⌃⌥E and say what to change: "make this shorter", "turn this into bullet points".
 - **Voice commands and snippets.** "New line", "new paragraph", "scratch that", and saved text you insert by saying a phrase.
 - **Transcribe files.** Drop in audio or video and export text, timestamps, SRT or VTT subtitles.
 
@@ -67,7 +67,7 @@ Get the latest version from the **[Releases page](https://github.com/10vr/driftf
 
 | Platform | Requirements | Download |
 |---|---|---|
-| **Mac** | Apple Silicon (M1 or later), macOS 15 or later. AI Styles and editing by voice need macOS 26 with Apple Intelligence. | `Driftflow-<version>-macOS.dmg` |
+| **Mac** | Apple Silicon (M1 or later), macOS 15 or later. AI Styles and editing by voice need a one-time AI model download (2.7 GB), or Apple Intelligence on macOS 26. | `Driftflow-<version>-macOS.dmg` |
 | **Windows** | Coming soon: a new native Windows app is being built from scratch. | |
 
 Open the disk image and drag Driftflow onto the Applications folder. The first time you open it, right-click Driftflow in Applications and choose **Open**, because the app isn't signed with an Apple Developer ID yet.
@@ -93,7 +93,7 @@ You can change any of these in Settings › Shortcuts.
 ## Privacy
 
 - Your voice is transcribed on your computer and is never uploaded.
-- Driftflow connects to the internet for only two things: downloading speech models (from Hugging Face) and checking for updates (from this GitHub repository).
+- Driftflow connects to the internet for only two things: downloading speech and AI models (from Hugging Face) and checking for updates (from this GitHub repository).
 - Audio isn't stored. The one exception is a dictation that fails: its recording is kept for a day so you can retry it from History, then deleted.
 - History and your stacks stay on your computer, and you can shorten how long they're kept or turn it off.
 - There are no accounts, analytics or ads.
@@ -121,6 +121,18 @@ Long dictations are transcribed in segments while you speak, so finishing a long
 
 Change the model and language in Settings › Models.
 
+## AI models
+
+AI Styles and editing by voice run on a language model on your Mac. Pick one in Settings › AI Model (or during setup):
+
+| Model | Rewrites right | Edits right | One sentence | Download |
+|---|---|---|---|---|
+| **Qwen 3.5 4B** (recommended) | 42 of 45 | 15 of 16 | 0.6 s | 2.7 GB |
+| Gemma 4 E2B (fastest) | 39 of 45 | 15 of 16 | 0.36 s | 3.3 GB |
+| Apple Intelligence (macOS 26) | 39 of 45 | 13 of 16 | 0.45 s | none |
+
+Measured on a Mac with an M5 chip, with the same test dictations and edits for every model. Qwen keeps your meaning most reliably: it never carried out a dictated instruction and kept other languages as spoken. The model uses about 3 GB of memory while it works and is freed when you stop using it, so on a Mac with 8 GB, Apple Intelligence is suggested first. Details in [`macos/README.md`](macos/README.md#styles-app-rules-snippets-and-voice-editing).
+
 ## Building from source
 
 The Mac app lives in [`macos/`](macos/): Swift, SwiftUI and AppKit, with Parakeet on the Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio). Details are in [`macos/README.md`](macos/README.md).
@@ -142,6 +154,8 @@ Driftflow builds on excellent open-source work:
 - [NVIDIA Parakeet](https://huggingface.co/nvidia) speech models.
 - [FluidAudio](https://github.com/FluidInference/FluidAudio) for Parakeet on Apple's Neural Engine.
 - [Sparkle](https://sparkle-project.org) for updates.
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) for running AI models on the Mac's GPU.
+- [Qwen 3.5](https://huggingface.co/Qwen) by Alibaba and [Gemma 4](https://ai.google.dev/gemma) by Google, the AI models (both Apache 2.0).
 
 ## License
 

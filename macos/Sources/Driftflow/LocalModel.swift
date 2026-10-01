@@ -1,0 +1,595 @@
+import CryptoKit
+import Foundation
+import llama
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
+
+/// The language model behind AI Styles and editing by voice. The local models run on this Mac's GPU
+/// with llama.cpp; Apple's is the one built into macOS 26.
+enum TextModel: String, CaseIterable, Identifiable {
+    case qwen = "qwen3.5-4b"
+    case gemma = "gemma4-e2b"
+    case apple
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .qwen: "Qwen 3.5 4B"
+        case .gemma: "Gemma 4 E2B"
+        case .apple: "Apple Intelligence"
+        }
+    }
+
+    var badge: String {
+        switch self {
+        case .qwen: "Recommended"
+        case .gemma: "Fastest"
+        case .apple: "Built in"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .qwen: "The most careful: keeps your meaning, applies your corrections (“ten, no, ten thirty”), keeps other languages as they are and follows edits closely. Alibaba, 4 billion parameters."
+        case .gemma: "About twice as fast as Qwen. A little less careful: it sometimes leaves a correction in or translates instead of tidying. Google, 2 billion effective parameters."
+        case .apple: "No download. Needs macOS 26 with Apple Intelligence. Fine for short sentences; with long dictations it sometimes turns them into an email, and it can't read long texts."
+        }
+    }
+
+    // Measured on an M5 MacBook with the same 45 dictations (15 sentences × 3 styles) and 16 voice
+    // edits for every model (main.swift --ai-compare). A rewrite counts when it passes the safety
+    // check and says what was dictated; an edit when it does what was asked.
+    var rewritesKept: Int {
+        switch self {
+        case .qwen: 42
+        case .gemma: 39
+        case .apple: 39
+        }
+    }
+
+    var editsRight: Int {
+        switch self {
+        case .qwen: 15
+        case .gemma: 15
+        case .apple: 13
+        }
+    }
+
+    static let rewriteTests = 45
+    static let editTests = 16
+
+    /// Typical time for a one-sentence dictation, key release → rewritten text (M5).
+    var typicalSeconds: Double {
+        switch self {
+        case .qwen: 0.6
+        case .gemma: 0.36
+        case .apple: 0.45
+        }
+    }
+
+    var downloadSize: String {
+        switch self {
+        case .qwen: "2.7 GB"
+        case .gemma: "3.3 GB"
+        case .apple: "No download"
+        }
+    }
+
+    /// While loaded: only when you use it, and freed after a few idle minutes.
+    var memory: String {
+        switch self {
+        case .qwen: "3 GB memory while working"
+        case .gemma: "3.5 GB memory while working"
+        case .apple: "Managed by macOS"
+        }
+    }
+
+    var needsDownload: Bool { self != .apple }
+
+    /// The file on Hugging Face, pinned to a revision and checked by its SHA-256.
+    struct File {
+        let repo: String
+        let revision: String
+        let name: String
+        let bytes: Int64
+        let sha256: String
+
+        var url: URL { URL(string: "https://huggingface.co/\(repo)/resolve/\(revision)/\(name)")! }
+    }
+
+    var file: File? {
+        switch self {
+        case .qwen: File(repo: "unsloth/Qwen3.5-4B-GGUF", revision: "e87f176479d0855a907a41277aca2f8ee7a09523",
+                         name: "Qwen3.5-4B-Q4_K_M.gguf", bytes: 2_740_937_888,
+                         sha256: "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4")
+        case .gemma: File(repo: "google/gemma-4-E2B-it-qat-q4_0-gguf", revision: "675cff42a74c774d6cb76f76d8eacb49b48c9b93",
+                          name: "gemma-4-E2B_q4_0-it.gguf", bytes: 3_349_516_256,
+                          sha256: "fa401b55b07ee70a54c6dae3903c783a6e65064312529ea57175cb5f8dec6634")
+        case .apple: nil
+        }
+    }
+
+    /// How a conversation is written out for the model (each was trained on its own format).
+    enum Format { case chatML, gemma }
+
+    var format: Format { self == .gemma ? .gemma : .chatML }
+
+    /// Below this much memory a 3 GB model makes the whole Mac swap, so Apple's model is suggested first.
+    static let comfortableMemory: UInt64 = 12 << 30
+
+    static var hasComfortableMemory: Bool { ProcessInfo.processInfo.physicalMemory >= comfortableMemory }
+
+    /// What a new install starts with: Qwen, or Apple's model on a Mac with 8 GB that has it.
+    static var recommended: TextModel {
+        hasComfortableMemory || !appleModelUsable ? .qwen : .apple
+    }
+
+    /// Apple's model is on and ready on this Mac.
+    static var appleModelUsable: Bool {
+        if ProcessInfo.processInfo.environment["DRIFTFLOW_NO_AI"] == "1" { return false }
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) { return SystemLanguageModel.default.availability == .available }
+        #endif
+        return false
+    }
+}
+
+// MARK: - Downloads
+
+/// Which local models are on disk; downloads, verifies and deletes them. Driftline (the call
+/// recorder) uses the same files: whichever app downloads a model first, the other makes an APFS
+/// clone of it, which takes no extra disk space and leaves each app free to delete its own copy.
+@MainActor
+final class TextModelManager: ObservableObject {
+    static let shared = TextModelManager()
+
+    @Published private(set) var status: [TextModel: ModelManager.Status] = [:]
+
+    private var downloads: [TextModel: FileDownload] = [:]
+
+    private init() { refresh() }
+
+    nonisolated static var folder: URL {
+        if let override = ProcessInfo.processInfo.environment["DRIFTFLOW_LANGUAGE_MODELS"] { // tests
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Driftflow/Language Models", isDirectory: true)
+    }
+
+    /// Where Driftline keeps the same files.
+    nonisolated static var driftlineFolder: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Driftline/Models/Language Models", isDirectory: true)
+    }
+
+    nonisolated static func fileURL(for model: TextModel) -> URL? {
+        model.file.map { folder.appendingPathComponent($0.name) }
+    }
+
+    func status(of model: TextModel) -> ModelManager.Status {
+        model.needsDownload ? status[model] ?? .notDownloaded : .downloaded
+    }
+
+    func isDownloaded(_ model: TextModel) -> Bool { status(of: model) == .downloaded }
+
+    func refresh() {
+        for model in TextModel.allCases where model.needsDownload {
+            if case .downloading = status[model] { continue }
+            Self.adoptShared(model)
+            status[model] = Self.isComplete(model) ? .downloaded : .notDownloaded
+        }
+    }
+
+    /// A finished copy: the right size (the checksum is checked once, when it's downloaded).
+    nonisolated static func isComplete(_ model: TextModel) -> Bool {
+        guard let file = model.file, let url = fileURL(for: model),
+              let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
+        return Int64(size) == file.bytes
+    }
+
+    /// Clones Driftline's copy when it has one and Driftflow doesn't.
+    nonisolated private static func adoptShared(_ model: TextModel) {
+        guard let file = model.file, let target = fileURL(for: model), !isComplete(model) else { return }
+        let source = driftlineFolder.appendingPathComponent(file.name)
+        guard let size = try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize, Int64(size) == file.bytes else { return }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: target)
+        if clonefile(source.path, target.path, 0) == 0 {
+            AppLog.info("\(model.displayName): cloned Driftline's copy, no download needed")
+        } else {
+            AppLog.info("\(model.displayName): couldn't clone Driftline's copy (errno \(errno)); it will be downloaded")
+        }
+    }
+
+    func download(_ model: TextModel) {
+        guard let file = model.file, downloads[model] == nil, !isDownloaded(model) else { return }
+        status[model] = .downloading(0)
+        AppLog.info("\(model.displayName): downloading \(file.name)")
+        let download = FileDownload(url: file.url) { [weak self] progress in
+            Task { @MainActor in
+                guard let self, self.downloads[model] != nil else { return }
+                self.status[model] = .downloading(progress)
+            }
+        } completion: { [weak self] result in
+            Task { @MainActor in await self?.finish(model, result) }
+        }
+        downloads[model] = download
+        download.start()
+    }
+
+    private func finish(_ model: TextModel, _ result: Result<URL, Error>) async {
+        guard downloads[model] != nil, let file = model.file, let target = Self.fileURL(for: model) else { return }
+        defer { downloads[model] = nil }
+        switch result {
+        case .failure(let error):
+            AppLog.error("\(model.displayName): download failed: \(error.localizedDescription)")
+            status[model] = .failed(error.localizedDescription)
+        case .success(let temporary):
+            status[model] = .downloading(1)
+            let verified = await Task.detached(priority: .utility) { () -> Bool in
+                guard (try? temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) == file.bytes else { return false }
+                return Self.sha256(of: temporary) == file.sha256
+            }.value
+            guard verified else {
+                try? FileManager.default.removeItem(at: temporary)
+                AppLog.error("\(model.displayName): downloaded file didn't match its checksum")
+                status[model] = .failed("The download was damaged. Try again.")
+                return
+            }
+            do {
+                try FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
+                try? FileManager.default.removeItem(at: target)
+                try FileManager.default.moveItem(at: temporary, to: target)
+                AppLog.info("\(model.displayName): downloaded and verified")
+                status[model] = .downloaded
+            } catch {
+                status[model] = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func cancelDownload(_ model: TextModel) {
+        downloads[model]?.cancel()
+        downloads[model] = nil
+        status[model] = Self.isComplete(model) ? .downloaded : .notDownloaded
+    }
+
+    func delete(_ model: TextModel) {
+        guard let url = Self.fileURL(for: model) else { return }
+        LocalLLM.shared.unload(model)
+        try? FileManager.default.removeItem(at: url)
+        // Deleted on purpose: don't clone Driftline's copy straight back.
+        status[model] = .notDownloaded
+    }
+
+    nonisolated private static func sha256(of url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try? handle.read(upToCount: 8 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// One file download with progress, kept on disk until the caller moves it.
+private final class FileDownload: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let url: URL
+    private let progress: (Double) -> Void
+    private let completion: (Result<URL, Error>) -> Void
+    private var session: URLSession?
+    private var lastReport = Date.distantPast
+
+    init(url: URL, progress: @escaping (Double) -> Void, completion: @escaping (Result<URL, Error>) -> Void) {
+        self.url = url
+        self.progress = progress
+        self.completion = completion
+    }
+
+    func start() {
+        let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        self.session = session
+        session.downloadTask(with: url).resume()
+    }
+
+    func cancel() {
+        session?.invalidateAndCancel()
+        session = nil
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard totalBytesExpectedToWrite > 0, Date().timeIntervalSince(lastReport) > 0.25 else { return }
+        lastReport = Date()
+        progress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        // The system deletes `location` when this returns: keep it next to the models (same volume, so the move is instant).
+        if let status = (downloadTask.response as? HTTPURLResponse)?.statusCode, status != 200 {
+            completion(.failure(URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "The server answered \(status)."])))
+            return
+        }
+        let kept = TextModelManager.folder.appendingPathComponent(UUID().uuidString + ".download")
+        do {
+            try FileManager.default.createDirectory(at: TextModelManager.folder, withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: location, to: kept)
+            completion(.success(kept))
+        } catch {
+            completion(.failure(error))
+        }
+        session.finishTasksAndInvalidate()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let error, (error as? URLError)?.code != .cancelled else { return }
+        completion(.failure(error))
+    }
+}
+
+// MARK: - Running a model
+
+/// Runs a downloaded model with llama.cpp on the GPU, one at a time. All llama.cpp calls happen on
+/// one serial queue. The model is loaded when first needed and freed after a few idle minutes (or
+/// at once when macOS runs short of memory), so it costs nothing while you aren't using it.
+final class LocalLLM: @unchecked Sendable {
+    static let shared = LocalLLM()
+
+    /// Freed after this long unused.
+    static let idleUnload: TimeInterval = 5 * 60
+
+    struct Failure: LocalizedError {
+        let errorDescription: String?
+    }
+
+    /// One part of a prompt. Template markup is read as the model's special tokens; your text never
+    /// is, so a selection that happens to contain "<|im_end|>" stays plain text.
+    struct Part {
+        let text: String
+        let markup: Bool
+    }
+
+    private let queue = DispatchQueue(label: "dev.driftflow.llm", qos: .userInitiated)
+    // Only touched on `queue`:
+    private var model: OpaquePointer?
+    private var context: OpaquePointer?
+    private var loaded: TextModel?
+    /// Exactly what the context's memory holds, so the next prompt can reuse a shared start.
+    private var memory: [llama_token] = []
+    private var idleTimer: DispatchSourceTimer?
+    private var pressure: DispatchSourceMemoryPressure?
+    private var exitHookInstalled = false
+
+    private init() {
+        queue.async { [self] in
+            llama_log_set({ _, _, _ in }, nil) // llama.cpp is chatty on stderr
+            llama_backend_init()
+            let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: queue)
+            source.setEventHandler { [weak self] in
+                guard let self, self.loaded != nil else { return }
+                AppLog.info("Memory is short: freeing the language model")
+                self.free()
+            }
+            source.resume()
+            pressure = source
+        }
+    }
+
+    /// Loads `model` and reads `prefix` (a style's instructions and examples) while you're still talking.
+    func prepare(_ model: TextModel, prefix: [Part]) {
+        queue.async { [self] in
+            do {
+                try load(model)
+                // Memory ends up holding exactly the prefix (the last dictation's text and answer dropped).
+                let tokens = tokenize(prefix)
+                let shared = sharedStart(tokens)
+                if shared < tokens.count || memory.count > tokens.count {
+                    try reuse(shared)
+                    try decode(Array(tokens[memory.count...]))
+                }
+            } catch {
+                AppLog.error("\(model.displayName): couldn't prepare: \(error.localizedDescription)")
+            }
+            scheduleUnload()
+        }
+    }
+
+    /// The model's reply to `prompt` (greedy: the same answer every time), or nil when it runs past `limit`.
+    func generate(_ model: TextModel, prompt: [Part], maxTokens: Int, limit: TimeInterval) async throws -> String? {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { [self] in
+                defer { scheduleUnload() }
+                do {
+                    let deadline = Date().addingTimeInterval(limit)
+                    try load(model)
+                    continuation.resume(returning: try run(tokenize(prompt), maxTokens: maxTokens, deadline: deadline))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Frees `model` if it's the one loaded (it's being deleted).
+    func unload(_ model: TextModel) {
+        queue.sync { if loaded == model { free() } }
+    }
+
+    private func freeForExit() {
+        queue.sync { free() }
+    }
+
+    // MARK: On the queue
+
+    private func load(_ wanted: TextModel) throws {
+        if loaded == wanted, context != nil { return }
+        free()
+        guard let url = TextModelManager.fileURL(for: wanted), TextModelManager.isComplete(wanted) else {
+            throw Failure(errorDescription: "\(wanted.displayName) isn't downloaded. Download it in Settings › AI Model.")
+        }
+        let started = Date()
+        var params = llama_model_default_params()
+        params.n_gpu_layers = 999 // all of it on the GPU
+        guard let model = llama_model_load_from_file(url.path, params) else {
+            throw Failure(errorDescription: "\(wanted.displayName) couldn't be loaded. Delete it in Settings › AI Model and download it again.")
+        }
+        var contextParams = llama_context_default_params()
+        contextParams.n_ctx = 8192 // the longest selection (5,000 characters), the instructions and the answer
+        contextParams.n_batch = 2048
+        contextParams.n_ubatch = 512
+        contextParams.n_seq_max = 1
+        contextParams.no_perf = true
+        guard let context = llama_init_from_model(model, contextParams) else {
+            llama_model_free(model)
+            throw Failure(errorDescription: "Not enough memory for \(wanted.displayName) right now.")
+        }
+        self.model = model
+        self.context = context
+        loaded = wanted
+        memory = []
+        if !exitHookInstalled {
+            // llama.cpp's GPU code asserts at exit if a model is still loaded (a crash report on every
+            // quit). Registered after the first load, so it runs before llama.cpp's own clean-up.
+            exitHookInstalled = true
+            atexit { LocalLLM.shared.freeForExit() }
+        }
+        AppLog.info("\(wanted.displayName): loaded in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+    }
+
+    private func free() {
+        if let context { llama_free(context) }
+        if let model { llama_model_free(model) }
+        context = nil
+        model = nil
+        if let loaded { AppLog.info("\(loaded.displayName): freed") }
+        loaded = nil
+        memory = []
+    }
+
+    private func scheduleUnload() {
+        idleTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + Self.idleUnload)
+        timer.setEventHandler { [weak self] in self?.free() }
+        timer.resume()
+        idleTimer = timer
+    }
+
+    private func tokenize(_ parts: [Part]) -> [llama_token] {
+        guard let model else { return [] }
+        let vocab = llama_model_get_vocab(model)
+        var tokens: [llama_token] = []
+        for part in parts where !part.text.isEmpty {
+            let utf8 = Array(part.text.utf8CString) // null-terminated
+            let length = Int32(utf8.count - 1)
+            var buffer = [llama_token](repeating: 0, count: Int(length) + 8)
+            var count = llama_tokenize(vocab, utf8, length, &buffer, Int32(buffer.count), false, part.markup)
+            if count < 0 {
+                buffer = [llama_token](repeating: 0, count: Int(-count))
+                count = llama_tokenize(vocab, utf8, length, &buffer, Int32(buffer.count), false, part.markup)
+            }
+            tokens += buffer.prefix(Int(max(count, 0)))
+        }
+        return tokens
+    }
+
+    /// How many leading tokens of `tokens` the memory already holds.
+    private func sharedStart(_ tokens: [llama_token]) -> Int {
+        var count = 0
+        while count < min(tokens.count, memory.count), tokens[count] == memory[count] { count += 1 }
+        return count
+    }
+
+    /// Keeps the first `count` tokens of memory. Some models (Qwen's recurrent layers) can't drop
+    /// part of it, so they start over.
+    private func reuse(_ count: Int) throws {
+        guard let context, count < memory.count else { return }
+        let state = llama_get_memory(context)
+        if count > 0, llama_memory_seq_rm(state, 0, llama_pos(count), -1) {
+            memory.removeLast(memory.count - count)
+        } else {
+            llama_memory_clear(state, true)
+            memory = []
+        }
+    }
+
+    private func decode(_ tokens: [llama_token]) throws {
+        guard let context, !tokens.isEmpty else { return }
+        var start = 0
+        while start < tokens.count {
+            var chunk = Array(tokens[start..<min(start + 2048, tokens.count)])
+            let result = chunk.withUnsafeMutableBufferPointer { llama_decode(context, llama_batch_get_one($0.baseAddress, Int32($0.count))) }
+            guard result == 0 else {
+                llama_memory_clear(llama_get_memory(context), true)
+                memory = []
+                throw Failure(errorDescription: result == 1 ? "That text is too long for the model." : "The model stopped with an error (\(result)).")
+            }
+            memory += chunk
+            start += chunk.count
+        }
+    }
+
+    private func run(_ prompt: [llama_token], maxTokens: Int, deadline: Date) throws -> String? {
+        guard let model, let context, !prompt.isEmpty else { return nil }
+        let vocab = llama_model_get_vocab(model)
+        guard prompt.count + maxTokens <= Int(llama_n_ctx(context)) else {
+            throw Failure(errorDescription: "That text is too long for the model.")
+        }
+        // The last prompt token is always read again, to get what comes after it.
+        try reuse(min(sharedStart(prompt), prompt.count - 1))
+        try decode(Array(prompt[memory.count...]))
+
+        let sampler = llama_sampler_chain_init(llama_sampler_chain_default_params())
+        llama_sampler_chain_add(sampler, llama_sampler_init_greedy())
+        defer { llama_sampler_free(sampler) }
+
+        var bytes: [UInt8] = []
+        var piece = [CChar](repeating: 0, count: 256)
+        for _ in 0..<maxTokens {
+            if Date() > deadline { return nil }
+            let token = llama_sampler_sample(sampler, context, -1)
+            if llama_vocab_is_eog(vocab, token) { break }
+            let special = llama_token_to_piece(vocab, token, &piece, Int32(piece.count), 0, true)
+            if special > 0, Self.endMarks.contains(String(decoding: piece.prefix(Int(special)).map(UInt8.init(bitPattern:)), as: UTF8.self)) { break }
+            let count = llama_token_to_piece(vocab, token, &piece, Int32(piece.count), 0, false)
+            if count > 0 { bytes += piece.prefix(Int(count)).map(UInt8.init(bitPattern:)) }
+            try decode([token])
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// End-of-turn markers, in case a model file doesn't list them as end tokens.
+    private static let endMarks: Set<String> = ["<|im_end|>", "<|endoftext|>", "<turn|>", "<|turn>", "<end_of_turn>"]
+}
+
+extension LocalLLM {
+    /// A conversation in `model`'s own format: instructions, earlier turns, then (when given) the new
+    /// message, ready for the reply. Without `message` it's the shared start of every such prompt.
+    static func prompt(for model: TextModel, system: String, turns: [(String, String)], message: String?) -> [Part] {
+        var parts: [Part] = []
+        func markup(_ text: String) { parts.append(Part(text: text, markup: true)) }
+        func text(_ text: String) { parts.append(Part(text: text, markup: false)) }
+        switch model.format {
+        case .chatML:
+            markup("<|im_start|>system\n"); text(system); markup("<|im_end|>\n")
+            for (said, reply) in turns {
+                markup("<|im_start|>user\n"); text(said); markup("<|im_end|>\n<|im_start|>assistant\n"); text(reply); markup("<|im_end|>\n")
+            }
+            if let message {
+                // Thinking off: the reply starts straight away.
+                markup("<|im_start|>user\n"); text(message); markup("<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n")
+            }
+        case .gemma:
+            markup("<bos><|turn>system\n"); text(system); markup("<turn|>\n")
+            for (said, reply) in turns {
+                markup("<|turn>user\n"); text(said); markup("<turn|>\n<|turn>model\n"); text(reply); markup("<turn|>\n")
+            }
+            if let message {
+                markup("<|turn>user\n"); text(message); markup("<turn|>\n<|turn>model\n")
+            }
+        }
+        return parts
+    }
+}

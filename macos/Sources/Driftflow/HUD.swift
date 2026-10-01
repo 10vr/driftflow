@@ -235,6 +235,8 @@ struct HUDToast: Equatable {
         case openStacks
         /// Settings › General, where the lines per stack are set.
         case stackLimit
+        /// Settings › AI Model.
+        case chooseAIModel
     }
 
     var id = UUID()
@@ -250,6 +252,7 @@ struct HUDToast: Equatable {
         case .installUpdate: "Restart Now"
         case .openStacks: "View"
         case .stackLimit: "Change Limit"
+        case .chooseAIModel: "Choose Model"
         case nil: nil
         }
     }

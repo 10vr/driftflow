@@ -216,9 +216,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             menu.addItem(item)
         }
         if !available {
-            let note = NSMenuItem(title: "Needs Apple Intelligence", action: nil, keyEquivalent: "")
-            note.isEnabled = false
-            menu.addItem(note)
+            menu.addItem(command("Needs an AI Model…") { [controller] in controller.openSettings(.aiModel) })
         }
         menu.addItem(.separator())
         menu.addItem(command("App and Website Rules…") { [controller] in controller.openSettings(.styles) })

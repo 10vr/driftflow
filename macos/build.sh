@@ -17,8 +17,13 @@ cp "$BIN_DIR/Driftflow" "$APP/Contents/MacOS/Driftflow"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp Resources/Sounds/*.caf "$APP/Contents/Resources/"
+cp -R Resources/Licenses "$APP/Contents/Resources/" # third-party licences (llama.cpp)
 mkdir -p "$APP/Contents/Frameworks"
 cp -R "$BIN_DIR/Sparkle.framework" "$APP/Contents/Frameworks/"
+# llama.cpp (the on-device language models), Apple silicon only.
+cp -R "$BIN_DIR/llama.framework" "$APP/Contents/Frameworks/"
+lipo -thin arm64 "$APP/Contents/Frameworks/llama.framework/Versions/A/llama" -output "$APP/Contents/Frameworks/llama.framework/Versions/A/llama.arm64"
+mv "$APP/Contents/Frameworks/llama.framework/Versions/A/llama.arm64" "$APP/Contents/Frameworks/llama.framework/Versions/A/llama"
 
 # Sign with a stable identity when available so macOS keeps the Accessibility grant across rebuilds.
 # Create one once: Keychain Access › Certificate Assistant › Create a Certificate…
@@ -32,6 +37,7 @@ for part in XPCServices/Installer.xpc XPCServices/Downloader.xpc Autoupdate Upda
     codesign --force --options runtime --preserve-metadata=entitlements --sign "$IDENTITY" "$SPARKLE/$part"
 done
 codesign --force --options runtime --sign "$IDENTITY" "$APP/Contents/Frameworks/Sparkle.framework"
+codesign --force --options runtime --sign "$IDENTITY" "$APP/Contents/Frameworks/llama.framework"
 if [ "$IDENTITY" != "-" ]; then
     codesign --force --options runtime --entitlements Resources/Driftflow.entitlements \
         --sign "$IDENTITY" --identifier dev.driftflow.app "$APP"

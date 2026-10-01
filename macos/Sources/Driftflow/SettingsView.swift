@@ -20,10 +20,10 @@ struct SettingsView: View {
     enum Pane: String, CaseIterable, Identifiable {
         /// Your dictations and transcribed files, above the settings.
         case history, stacks, files
-        case general, shortcuts, models, output, styles, vocabulary, permissions
+        case general, shortcuts, models, aiModel, output, styles, vocabulary, permissions
 
         static let content: [Pane] = [.history, .stacks, .files]
-        static let settings: [Pane] = [.general, .shortcuts, .models, .output, .styles, .vocabulary, .permissions]
+        static let settings: [Pane] = [.general, .shortcuts, .models, .aiModel, .output, .styles, .vocabulary, .permissions]
 
         var id: String { rawValue }
 
@@ -32,6 +32,7 @@ struct SettingsView: View {
             case .general: "General"
             case .shortcuts: "Shortcuts"
             case .models: "Models"
+            case .aiModel: "AI Model"
             case .output: "Output"
             case .styles: "Styles"
             case .vocabulary: "Vocabulary"
@@ -48,6 +49,7 @@ struct SettingsView: View {
             case .general: "Microphone, sounds and the on-screen pill"
             case .shortcuts: "Keys for dictation, hands-free and paste-last"
             case .models: "Which speech models write your words, and your language"
+            case .aiModel: "The on-device model behind AI Styles and editing by voice"
             case .output: "How text is cleaned up and inserted"
             case .styles: "On-device AI rewriting, and rules for each app or website"
             case .vocabulary: "Names, jargon, replacements and snippets"
@@ -63,6 +65,7 @@ struct SettingsView: View {
             case .general: "switch.2"
             case .shortcuts: "keyboard"
             case .models: "cpu"
+            case .aiModel: "sparkles"
             case .output: "text.cursor"
             case .styles: "wand.and.sparkles"
             case .vocabulary: "character.book.closed"
@@ -91,6 +94,7 @@ struct SettingsView: View {
                 case .general: GeneralPane(controller: controller, settings: settings)
                 case .shortcuts: ShortcutsPane(controller: controller, settings: settings)
                 case .models: ModelsPane(controller: controller, settings: settings)
+                case .aiModel: AIModelPane(settings: settings)
                 case .output: OutputPane(settings: settings)
                 case .styles: StylesPane(settings: settings)
                 case .vocabulary: VocabularyPane(settings: settings)
@@ -573,7 +577,7 @@ private struct ModelRow: View {
     }
 }
 
-private struct Stat: View {
+struct Stat: View {
     let icon: String
     let text: String
 

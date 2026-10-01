@@ -249,7 +249,12 @@ final class DictationController: ObservableObject {
         sounds.preload(settings.soundStyle)
 
         if microphoneAuthorized { applyMicMode(settings.micMode) }
-        if !microphoneAuthorized || !accessibilityGranted { showOnboarding() }
+        if !microphoneAuthorized || !accessibilityGranted {
+            UserDefaults.standard.set(true, forKey: Self.suggestedModelKey) // setup's AI model step covers it
+            showOnboarding()
+        } else {
+            suggestLocalModelOnce()
+        }
         prewarm()
         loadAccuracyModel(settings.accuracyModel)
         // A Mac language with no on-device speech model falls back to English.
@@ -272,6 +277,23 @@ final class DictationController: ObservableObject {
 
     func showOnboarding() {
         onboarding.show(controller: self)
+    }
+
+    private static let suggestedModelKey = "suggestedTextModel"
+
+    /// Once, for people who set up Driftflow before it had its own AI models: says the recommended
+    /// one is available (it's never downloaded without asking).
+    private func suggestLocalModelOnce() {
+        guard !UserDefaults.standard.bool(forKey: Self.suggestedModelKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.suggestedModelKey)
+        let model = settings.textModel
+        guard model != .apple, !TextModelManager.shared.isDownloaded(model) else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard phase == .idle else { return }
+            showToast(HUDToast(icon: "sparkles", text: "New: \(model.displayName), a more careful AI model for Styles and editing by voice. Runs on this Mac (\(model.downloadSize)).",
+                               action: .chooseAIModel), for: 12)
+        }
     }
 
     private func applyVocabulary() {
@@ -621,6 +643,7 @@ final class DictationController: ObservableObject {
         case .installUpdate: Updater.shared.installNow()
         case .openStacks: openSettings(.stacks)
         case .stackLimit: openSettings(.general)
+        case .chooseAIModel: openSettings(.aiModel)
         case .addToVocabulary(let term):
             let terms = settings.vocabularyTerms
             if !terms.contains(where: { $0.caseInsensitiveCompare(term) == .orderedSame }) {
@@ -1105,8 +1128,9 @@ final class DictationController: ObservableObject {
         if phase == .listening, editing { return stop(commit: true) }
         guard phase == .idle else { return }
         if case .unavailable(let reason) = AIRewriter.shared.availability {
-            return showToast(HUDToast(icon: "wand.and.sparkles", text: "Editing by voice needs Apple Intelligence. \(reason)"), for: 5)
+            return showToast(HUDToast(icon: "wand.and.sparkles", text: "Editing by voice needs an AI model. \(reason)", action: .chooseAIModel), for: 6)
         }
+        AIRewriter.shared.prepareEdit() // loads the model while you select and speak
         guard accessibilityGranted else { return show(error: "Allow Accessibility access to edit text by voice.") }
         Task {
             let selection = await SelectionReader.read()

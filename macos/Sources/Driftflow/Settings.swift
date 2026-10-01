@@ -207,8 +207,10 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set((try? JSONEncoder().encode(micPriority)) ?? Data(), forKey: "micPriority") }
     }
 
-    /// How Apple's on-device model rewrites dictations (Original: not at all).
+    /// How the AI model rewrites dictations (Original: not at all).
     @Published var aiStyle: AIStyle { didSet { defaults.set(aiStyle.rawValue, forKey: "aiStyle") } }
+    /// Which on-device language model runs AI Styles and editing by voice.
+    @Published var textModel: TextModel { didSet { defaults.set(textModel.rawValue, forKey: "textModel") } }
     /// Per-app and per-website overrides.
     @Published var appRules: [AppRule] { didSet { defaults.set((try? JSONEncoder().encode(appRules)) ?? Data(), forKey: "appRules") } }
     /// Spoken phrases that insert saved text.
@@ -288,6 +290,7 @@ final class AppSettings: ObservableObject {
             micPriority = old.isEmpty ? [.systemDefault] : [MicPreference(uid: old, name: name), .systemDefault]
         }
         aiStyle = AIStyle(rawValue: defaults.string(forKey: "aiStyle") ?? "") ?? .literal
+        textModel = TextModel(rawValue: defaults.string(forKey: "textModel") ?? "") ?? .recommended
         appRules = defaults.data(forKey: "appRules").flatMap { try? JSONDecoder().decode([AppRule].self, from: $0) } ?? []
         snippets = defaults.data(forKey: "snippets").flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) } ?? []
         editShortcut = defaults.object(forKey: "editShortcut") == nil ? .editDefault : Self.combo(defaults, "editShortcut")

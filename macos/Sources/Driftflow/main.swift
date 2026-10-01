@@ -179,6 +179,75 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
         exit(0)
     }
     dispatchMain()
+} else if let index = arguments.firstIndex(of: "--ai-compare"), index + 2 < arguments.count {
+    // `DRIFTFLOW_TEXT_MODEL=<model> Driftflow --ai-compare <cases.json> <out.json>`: every dictation in
+    // every style, and every voice edit, through the chosen AI model exactly as the app runs them.
+    // cases.json: {"styles": [{"id", "text"}], "edits": [{"id", "instruction", "text"}]}. Writes each
+    // raw output, what the app would insert (nil: kept as said) and the time taken.
+    Task { @MainActor in
+        guard let model = AIRewriter.shared.activeModel else { print("AI unavailable: \(AIRewriter.shared.availability)"); exit(1) }
+        struct Cases: Decodable {
+            struct Style: Decodable { let id: String; let text: String }
+            struct Edit: Decodable { let id: String; let instruction: String; let text: String }
+            let styles: [Style]
+            let edits: [Edit]
+        }
+        guard let data = FileManager.default.contents(atPath: arguments[index + 1]),
+              let cases = try? JSONDecoder().decode(Cases.self, from: data) else { print("Can't read \(arguments[index + 1])"); exit(2) }
+        print("Model: \(model.displayName)")
+        let clock = ContinuousClock()
+        var results: [[String: Any]] = []
+        for style in [AIStyle.clean, .professional, .casual] {
+            for item in cases.styles {
+                AIRewriter.shared.prepare(style)
+                try? await Task.sleep(for: .milliseconds(1500)) // as if you were still talking
+                let start = clock.now
+                let inserted = await AIRewriter.shared.rewrite(item.text, style: style)
+                let ms = Int((clock.now - start) / .milliseconds(1))
+                results.append(["kind": "style", "id": item.id, "style": style.rawValue, "raw": AIRewriter.shared.lastOutput ?? "",
+                                "output": inserted ?? NSNull(), "acceptable": inserted != nil, "ms": ms])
+                print("style \(item.id) \(style.rawValue) \(ms) ms \(inserted == nil ? "KEPT" : "ok")")
+            }
+        }
+        for item in cases.edits {
+            let start = clock.now
+            let output: String
+            do { output = try await AIRewriter.shared.edit(item.text, instruction: item.instruction) } catch { output = "ERROR \(error.localizedDescription)" }
+            let ms = Int((clock.now - start) / .milliseconds(1))
+            results.append(["kind": "edit", "id": item.id, "raw": output, "output": output, "ms": ms])
+            print("edit \(item.id) \(ms) ms")
+        }
+        let json = try? JSONSerialization.data(withJSONObject: results, options: [.prettyPrinted, .sortedKeys])
+        FileManager.default.createFile(atPath: arguments[index + 2], contents: json)
+        exit(0)
+    }
+    dispatchMain()
+} else if let index = arguments.firstIndex(of: "--model-download-test"), index + 1 < arguments.count {
+    // `DRIFTFLOW_LANGUAGE_MODELS=<scratch dir> Driftflow --model-download-test <model>`: downloads and
+    // verifies a language model exactly as Settings does, into that folder.
+    guard ProcessInfo.processInfo.environment["DRIFTFLOW_LANGUAGE_MODELS"] != nil,
+          let model = TextModel(rawValue: arguments[index + 1]), model.needsDownload else { print("Set DRIFTFLOW_LANGUAGE_MODELS and name a model"); exit(2) }
+    Task { @MainActor in
+        let manager = TextModelManager.shared
+        let start = Date()
+        manager.download(model)
+        var last = -1
+        while true {
+            try? await Task.sleep(for: .milliseconds(500))
+            switch manager.status(of: model) {
+            case .downloading(let progress):
+                if Int(progress * 10) != last { last = Int(progress * 10); print("\(Int(progress * 100))%") }
+            case .downloaded:
+                print("Downloaded and verified in \(Int(Date().timeIntervalSince(start))) s: \(TextModelManager.fileURL(for: model)!.path)")
+                exit(0)
+            case .failed(let message):
+                print("Failed: \(message)"); exit(1)
+            case .notDownloaded:
+                print("Not downloaded"); exit(1)
+            }
+        }
+    }
+    dispatchMain()
 } else if arguments.contains("--log-test") {
     // DRIFTFLOW_LOG_PATH=<scratch file> Driftflow --log-test: writes to that file, never the real log.
     guard ProcessInfo.processInfo.environment["DRIFTFLOW_LOG_PATH"] != nil else { print("Set DRIFTFLOW_LOG_PATH"); exit(2) }
@@ -354,7 +423,24 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
         if got != want { failures += 1 }
         print(got == want ? "PASS" : "FAIL", name, got == want ? "" : "(got \"\(got)\")")
     }
-    print(failures == 0 ? "all \(cases.count + stackKeys.count + joins.count) passed" : "\(failures) failed")
+    // Prompts in each model's own format (the strings its chat template writes; checked against
+    // Hugging Face's templates), with thinking off for Qwen.
+    let formats: [(String, TextModel, String)] = [
+        ("Qwen's chat format", .qwen, "<|im_start|>system\nSYS<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\nHi.<|im_end|>\n<|im_start|>user\nyo<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"),
+        ("Gemma's chat format", .gemma, "<bos><|turn>system\nSYS<turn|>\n<|turn>user\nhi<turn|>\n<|turn>model\nHi.<turn|>\n<|turn>user\nyo<turn|>\n<|turn>model\n"),
+    ]
+    for (name, model, want) in formats {
+        let parts = LocalLLM.prompt(for: model, system: "SYS", turns: [("hi", "Hi.")], message: "yo")
+        let got = parts.map(\.text).joined()
+        // Only the template is read as special tokens, never what you said.
+        let marked = parts.filter { !$0.markup }.map(\.text) == ["SYS", "hi", "Hi.", "yo"]
+        // A style's prepared start is exactly the start of the full prompt.
+        let prefix = LocalLLM.prompt(for: model, system: "SYS", turns: [("hi", "Hi.")], message: nil).map(\.text).joined()
+        let pass = got == want && marked && got.hasPrefix(prefix)
+        if !pass { failures += 1 }
+        print(pass ? "PASS" : "FAIL", name, pass ? "" : "(got \"\(got)\")")
+    }
+    print(failures == 0 ? "all \(cases.count + stackKeys.count + joins.count + formats.count) passed" : "\(failures) failed")
     exit(failures == 0 ? 0 : 1)
 } else if arguments.contains("--load-test") {
     // Model switching: the vocabulary sequence that used to deadlock, then rapid switches where

@@ -344,7 +344,7 @@ final class FilesWindow {
     /// The onboarding window. (Settings forms draw through the window server and can't be captured this way.)
     func snapshotSettings(to directory: URL) async {
         let saved = UserDefaults.standard.integer(forKey: "onboardingStep")
-        for step in 0...6 {
+        for step in [0, 1, 2, 3, 4, 7, 5, 6] { // in the order they appear (7 is the AI model step)
             DictationController.shared.resetOnboardingWindow()
             UserDefaults.standard.set(step, forKey: "onboardingStep")
             DictationController.shared.showOnboarding()
@@ -360,7 +360,14 @@ final class FilesWindow {
         let settings = NSApp.windows.first { $0.isVisible && $0.identifier?.rawValue.contains("Settings") == true }
             ?? NSApp.windows.first { $0.isVisible && $0.title == "General" }
         Self.capture(settings, to: directory.appendingPathComponent("settings-general.png"))
+        DictationController.shared.openSettings(.aiModel)
+        try? await Task.sleep(for: .seconds(1.5))
         settings?.close()
+        let rows = AIModelPane.snapshotWindow()
+        rows.orderFront(nil)
+        try? await Task.sleep(for: .seconds(1))
+        Self.capture(rows, to: directory.appendingPathComponent("settings-ai-model.png"))
+        rows.close()
     }
 
     func snapshot(to directory: URL) async {

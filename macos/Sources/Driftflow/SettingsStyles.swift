@@ -16,13 +16,9 @@ struct StylesPane: View {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "sparkles").foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("AI Styles need Apple Intelligence").fontWeight(.medium)
+                            Text("AI Styles need an AI model").fontWeight(.medium)
                             Text(reason).foregroundStyle(.secondary)
-                            if #available(macOS 26.0, *) {
-                                Button("Open Apple Intelligence Settings") {
-                                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Siri-Settings.extension")!)
-                                }
-                            }
+                            Button("Choose AI Model…") { SettingsRouter.shared.pane = .aiModel }
                         }
                     }
                 } footer: {
@@ -39,7 +35,7 @@ struct StylesPane: View {
             } header: {
                 Text("Default style")
             } footer: {
-                Text("Styles use Apple's on-device model: nothing leaves your Mac. They add about 0.3–0.5 s after you release the key and apply to English dictation. If a rewrite doesn't match what you said (for example, if it answers a question you dictated), your own words are inserted instead.")
+                Text("Styles use \(AIRewriter.shared.activeModel?.displayName ?? "the AI model"), running on this Mac (change it in AI Model): nothing leaves your Mac. They add about half a second after you release the key and apply to English dictation. If a rewrite doesn't match what you said (for example, if it answers a question you dictated), your own words are inserted instead.")
                     .foregroundStyle(.secondary)
             }
 

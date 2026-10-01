@@ -48,13 +48,27 @@ final class OnboardingWindow {
 }
 
 private enum OnboardingStep: Int, CaseIterable {
-    case welcome, permissions, model, microphone, shortcut, tryIt, done
+    // The number is saved (where you left off), so a new step takes the next free one; `order` sets
+    // where it appears.
+    case welcome = 0, permissions = 1, model = 2, microphone = 3, shortcut = 4, tryIt = 5, done = 6, aiModel = 7
+
+    static let order: [OnboardingStep] = [.welcome, .permissions, .model, .microphone, .shortcut, .aiModel, .tryIt, .done]
+
+    var next: OnboardingStep {
+        let index = Self.order.firstIndex(of: self) ?? 0
+        return Self.order[min(index + 1, Self.order.count - 1)]
+    }
+
+    var previous: OnboardingStep {
+        let index = Self.order.firstIndex(of: self) ?? 0
+        return Self.order[max(index - 1, 0)]
+    }
 
     var phase: Int {
         switch self {
         case .welcome: 0
         case .permissions: 1
-        case .model, .microphone, .shortcut: 2
+        case .model, .microphone, .shortcut, .aiModel: 2
         case .tryIt: 3
         case .done: 4
         }
@@ -69,6 +83,7 @@ private enum OnboardingStep: Int, CaseIterable {
         case .model: "Language and model"
         case .microphone: "Check your microphone"
         case .shortcut: "Your dictation key"
+        case .aiModel: "AI writing"
         case .tryIt: "Try it"
         case .done: "You're all set"
         }
@@ -83,6 +98,7 @@ private enum OnboardingStep: Int, CaseIterable {
             : "Pick the language you speak. Driftflow transcribes it with Parakeet, the most accurate model we tested, right on this Mac."
         case .microphone: "Driftflow uses this microphone for every dictation. You can change it any time from the menu bar."
         case .shortcut: "Hold it while you speak and let go to insert. Tap it once to keep listening hands-free; tap again to finish."
+        case .aiModel: "Optional. An AI model on this Mac can tidy what you say into a style (Clean, Professional or Casual) and change selected text when you tell it how. It never sends anything anywhere."
         case .tryIt: "Click in the email below, hold your key and say a sentence. Filler words like “umm” are removed for you."
         case .done: "Driftflow lives in your menu bar. Here's how it's set up."
         }
@@ -97,6 +113,7 @@ private enum OnboardingStep: Int, CaseIterable {
             : "On this Mac, dictation needs this model on disk first; it runs fully offline after that."
         case .microphone: "Your mic works if the bars light up when you talk."
         case .shortcut: "Hold the key now: the caps light up."
+        case .aiModel: "It downloads in the background, so carry on. Pick a style later in Settings › Styles."
         case .tryIt: "Try: “umm, can we move our call to Thursday at 3?”"
         case .done: nil
         }
@@ -159,7 +176,7 @@ private struct OnboardingView: View {
                 Spacer()
                 HStack {
                     if step != .welcome, step != .done {
-                        Button("Back") { go(OnboardingStep(rawValue: step.rawValue - 1) ?? .welcome) }
+                        Button("Back") { go(step.previous) }
                             .glassButtonStyle()
                             .controlSize(.large)
                     }
@@ -170,7 +187,7 @@ private struct OnboardingView: View {
                             .foregroundStyle(.secondary)
                     }
                     Button(step == .done ? "Start Dictating" : step == .welcome ? "Get Started" : "Continue") {
-                        if step == .done { finish() } else { go(OnboardingStep(rawValue: step.rawValue + 1) ?? .done) }
+                        if step == .done { finish() } else { go(step.next) }
                     }
                     .glassProminentButtonStyle()
                     .controlSize(.large)
@@ -223,6 +240,7 @@ private struct OnboardingView: View {
         case .model: ModelStep(controller: controller, settings: settings, models: .shared)
         case .microphone: MicrophoneCard(settings: settings)
         case .shortcut: ShortcutCard(controller: controller, settings: settings)
+        case .aiModel: AIModelStep(settings: settings)
         case .tryIt: TryItCard(text: $tryText, settings: settings)
         case .done: SummaryCard(controller: controller, settings: settings)
         }
@@ -522,6 +540,8 @@ private struct SummaryCard: View {
         VStack(alignment: .leading, spacing: 14) {
             Spacer()
             summary("cpu", "Model", controller.activeModel)
+            summary("sparkles", "AI model", AIRewriter.shared.activeModel.map { "\($0.displayName)\($0 == settings.textModel ? "" : " (until \(settings.textModel.displayName) downloads)")" }
+                    ?? (TextModelManager.shared.status(of: settings.textModel) == .notDownloaded ? "None (add one in Settings › AI Model)" : "\(settings.textModel.displayName), downloading"))
             summary("keyboard", "Dictation key", "Hold \(settings.trigger.label)\(settings.tapForHandsFree ? " · tap for hands-free" : "")")
             summary("mic", "Microphone", devices.inputs.first { $0.uid == settings.inputDeviceUID }?.name ?? "System default (\(devices.defaultInputName))")
             if let paste = settings.pasteLastShortcut {
@@ -701,5 +721,82 @@ private struct StepRow: View {
         .padding(14)
         .glassSurface(in: .rect(cornerRadius: 14))
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: done)
+    }
+}
+
+/// The AI model step: Qwen (or Apple's model on a Mac with 8 GB) is preselected; downloading is
+/// optional and happens in the background.
+private struct AIModelStep: View {
+    @ObservedObject var settings: AppSettings
+    @ObservedObject private var models = TextModelManager.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(TextModel.allCases) { model in
+                Button { withAnimation(.snappy) { settings.textModel = model } } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: settings.textModel == model ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 18))
+                            .foregroundStyle(settings.textModel == model ? Color.accentColor : Color.secondary.opacity(0.5))
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text(model.displayName).font(.headline)
+                                Text(model.badge).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            }
+                            Text(tagline(model)).font(.callout).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(12)
+                    .contentShape(.rect)
+                    .glassSurface(in: .rect(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 10) {
+                statusView
+                Spacer()
+            }
+            .padding(.top, 6)
+            if !TextModel.hasComfortableMemory {
+                Text("This Mac has \(ProcessInfo.processInfo.physicalMemory >> 30) GB of memory: Qwen and Gemma use about 3 GB while they work, which can slow other apps. Apple Intelligence needs none.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .animation(.snappy, value: models.status(of: settings.textModel))
+    }
+
+    private func tagline(_ model: TextModel) -> String {
+        switch model {
+        case .qwen: "The most careful with your words. \(model.downloadSize), about \(model.typicalSeconds.formatted()) s a sentence."
+        case .gemma: "The fastest, a little less careful. \(model.downloadSize), about \(model.typicalSeconds.formatted()) s a sentence."
+        case .apple: TextModel.appleModelUsable ? "Built into macOS. Nothing to download; less reliable with long dictations."
+                                                : "Not available on this Mac: \(AIRewriter.appleUnavailableReason)"
+        }
+    }
+
+    @ViewBuilder
+    private var statusView: some View {
+        let model = settings.textModel
+        switch models.status(of: model) {
+        case .downloading(let progress):
+            ProgressView(value: progress).frame(width: 160)
+            Text(progress >= 1 ? "Checking…" : "Downloading, \(Int(progress * 100))%").font(.callout).foregroundStyle(.secondary)
+        case .notDownloaded, .failed:
+            Button("Download \(model.displayName) (\(model.downloadSize))") { models.download(model) }
+                .glassButtonStyle()
+            if case .failed(let message) = models.status(of: model) {
+                Text(message).font(.caption).foregroundStyle(.red)
+            }
+        case .downloaded:
+            if model == .apple, !TextModel.appleModelUsable {
+                Label("Pick Qwen or Gemma to use AI writing on this Mac.", systemImage: "info.circle").font(.callout).foregroundStyle(.secondary)
+            } else {
+                Label("\(model.displayName) is ready", systemImage: "checkmark.circle.fill").font(.callout.weight(.medium)).foregroundStyle(.green)
+            }
+        }
     }
 }
