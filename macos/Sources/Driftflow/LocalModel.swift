@@ -576,6 +576,7 @@ final class LocalLLM: @unchecked Sendable {
                 try load(model)
                 // Memory ends up holding exactly the prefix (the last dictation's text and answer dropped).
                 let tokens = tokenize(prefix)
+                try ensureRoom(for: Self.usualContext) // back to the usual size after a long request
                 let shared = sharedStart(tokens)
                 if shared < tokens.count || memory.count > tokens.count {
                     try reuse(shared)
@@ -627,13 +628,7 @@ final class LocalLLM: @unchecked Sendable {
         guard let model = llama_model_load_from_file(url.path, params) else {
             throw Failure(errorDescription: "\(wanted.displayName) couldn't be loaded. Delete it in Settings › AI Model and download it again.")
         }
-        var contextParams = llama_context_default_params()
-        contextParams.n_ctx = 8192 // the longest selection (5,000 characters), the instructions and the answer
-        contextParams.n_batch = 2048
-        contextParams.n_ubatch = 512
-        contextParams.n_seq_max = 1
-        contextParams.no_perf = true
-        guard let context = llama_init_from_model(model, contextParams) else {
+        guard let context = Self.makeContext(model, size: Self.usualContext) else {
             llama_model_free(model)
             throw Failure(errorDescription: "Not enough memory for \(wanted.displayName) right now.")
         }
@@ -649,6 +644,40 @@ final class LocalLLM: @unchecked Sendable {
             atexit { LocalLLM.shared.freeForExit() }
         }
         AppLog.info("\(wanted.displayName): loaded in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+    }
+
+    /// Room for the instructions, your text and the answer, in tokens. The usual size fits a dictation
+    /// or a selection of up to about 2,000 characters; a longer one gets a larger context for that
+    /// request only (up to the 5,000-character limit). Measured with Qwen: 4,096 tokens keep about 370 MB
+    /// of working memory, 8,192 about 500 MB, at the same speed.
+    static let usualContext = 4096
+    static let largestContext = 8192
+
+    private static func makeContext(_ model: OpaquePointer, size: Int) -> OpaquePointer? {
+        var params = llama_context_default_params()
+        params.n_ctx = UInt32(size)
+        params.n_batch = 512
+        params.n_ubatch = 512
+        params.n_seq_max = 1
+        params.no_perf = true
+        return llama_init_from_model(model, params)
+    }
+
+    /// A context with room for `tokens`: the usual size when that's enough (shrinking back after a
+    /// long request), otherwise a larger one.
+    private func ensureRoom(for tokens: Int) throws {
+        guard let model, let context else { return }
+        guard tokens <= Self.largestContext else { throw Failure(errorDescription: "That text is too long for the model.") }
+        let size = tokens <= Self.usualContext ? Self.usualContext : min(Self.largestContext, (tokens + 1023) / 1024 * 1024)
+        guard Int(llama_n_ctx(context)) != size else { return }
+        llama_free(context)
+        self.context = nil
+        memory = []
+        guard let resized = Self.makeContext(model, size: size) else {
+            free()
+            throw Failure(errorDescription: "Not enough memory for the model right now.")
+        }
+        self.context = resized
     }
 
     private func free() {
@@ -712,7 +741,7 @@ final class LocalLLM: @unchecked Sendable {
         guard let context, !tokens.isEmpty else { return }
         var start = 0
         while start < tokens.count {
-            var chunk = Array(tokens[start..<min(start + 2048, tokens.count)])
+            var chunk = Array(tokens[start..<min(start + Int(llama_n_batch(context)), tokens.count)])
             let result = chunk.withUnsafeMutableBufferPointer { llama_decode(context, llama_batch_get_one($0.baseAddress, Int32($0.count))) }
             guard result == 0 else {
                 llama_memory_clear(llama_get_memory(context), true)
@@ -725,11 +754,10 @@ final class LocalLLM: @unchecked Sendable {
     }
 
     private func run(_ prompt: [llama_token], maxTokens: Int, deadline: Date) throws -> String? {
-        guard let model, let context, !prompt.isEmpty else { return nil }
+        guard model != nil, context != nil, !prompt.isEmpty else { return nil }
+        try ensureRoom(for: prompt.count + maxTokens)
+        guard let model, let context else { return nil }
         let vocab = llama_model_get_vocab(model)
-        guard prompt.count + maxTokens <= Int(llama_n_ctx(context)) else {
-            throw Failure(errorDescription: "That text is too long for the model.")
-        }
         // The last prompt token is always read again, to get what comes after it.
         try reuse(min(sharedStart(prompt), prompt.count - 1))
         try decode(Array(prompt[memory.count...]))
