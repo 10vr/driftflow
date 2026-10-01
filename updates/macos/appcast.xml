@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.23</title>
+            <pubDate>Thu, 01 Oct 2026 12:17:51 GMT</pubDate>
+            <sparkle:version>202610012017</sparkle:version>
+            <sparkle:shortVersionString>0.2.23</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>AI Styles and editing by voice now run on an AI model on your Mac. Qwen 3.5 4B is recommended (a one-time 2.7 GB download in Settings › AI Model); Gemma 4 E2B is the fastest, and Apple Intelligence stays available. They&#x27;re more careful with your words: they apply your corrections, keep other languages as spoken, and never carry out a request you dictate.</p><p>AI Styles and editing by voice also work on macOS 15 and on Macs without Apple Intelligence, with Qwen or Gemma.</p><p>Setup has a new AI writing step, and Settings has a new AI Model page showing how each model did in our tests, its speed and its size.</p><p>The Pop sounds are new: a bubble pops upward to start, and two soft pops fall to stop.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.23/Driftflow-0.2.23-macOS.zip" type="application/octet-stream" sparkle:edSignature="7Sl/KnH5lQwu4JAIfEj+ZXxorLlFRepmH+Q9Pb1dyIu4Qq8I0bl50X6FvjI7/25HLFqY7gOz/cV4Rb3MgetRDw==" length="17362134"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.22</title>
             <pubDate>Wed, 30 Sep 2026 13:50:00 GMT</pubDate>
             <sparkle:version>202609302149</sparkle:version>
