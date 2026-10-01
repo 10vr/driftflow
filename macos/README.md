@@ -28,15 +28,17 @@ Tested on 300 real LibriSpeech recordings (half clean, half noisy), with numbers
 | Apple SpeechTranscriber | 3.30% | 2.75–3.91 | 4.36% | 98 ms | Fallback, other languages, optional live preview |
 | Nemotron Streaming 0.6B | 3.86% | 3.22–4.59 | 5.11% | 92 ms | Slowest first text (1.3 s) |
 
-## Design compared with Handy and FluidVoice
+## How Driftflow stays fast
 
-| | Handy | FluidVoice | Driftflow |
-|---|---|---|---|
-| Transcription | After release | Re-runs the whole clip every 0.6 s, then again at the end | Streams while you talk; long dictations are finalized in segments at pauses |
-| First syllable | Can be clipped | Can be clipped | Recording starts on key-down; optional warm mic adds 0.5 s pre-roll |
-| Paste | 220 ms of fixed sleeps, clipboard restored on a timer | 500 ms clipboard hold | No sleeps; the clipboard is restored the moment the target app reads the text (lazy pasteboard promise) |
-| Model state | Unloaded after 5 min idle | Reloads after dictionary edits | Loaded once and kept warm on the Neural Engine |
-| Overlay | Web view | Native, with many fixed timers | Native Liquid Glass, spring-animated, waveform redrawn at the display's refresh rate outside SwiftUI state |
+- **Transcribes while you talk.** Text streams as you speak, and long dictations are finalized in segments at
+  pauses, so letting go leaves only the last few seconds to process.
+- **Never clips the first syllable.** Recording starts the moment the key goes down; the optional warm microphone
+  also keeps the half-second before it.
+- **No waiting to paste.** No fixed delays: the clipboard is put back the moment the app has read the text
+  (a lazy pasteboard promise).
+- **The model stays ready.** It's loaded once and kept warm on the Neural Engine.
+- **A native overlay.** Liquid Glass, spring-animated, with the waveform redrawn at the display's refresh rate
+  outside SwiftUI state.
 
 ## Build and run
 
