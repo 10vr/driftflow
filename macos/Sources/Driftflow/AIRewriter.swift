@@ -145,10 +145,11 @@ final class AIRewriter {
 
     /// `text` in `style`, or nil to keep it as it is: no model, too long, too slow, or a result
     /// that doesn't look like a rewrite of what you said.
-    func rewrite(_ text: String, style: AIStyle) async -> String? {
+    /// `model`: a particular one (Settings' Try it box), instead of the one in use.
+    func rewrite(_ text: String, style: AIStyle, using model: TextModel? = nil) async -> String? {
         lastOutput = nil
         guard style != .literal, text.count >= 2, text.count <= Self.maxCharacters else { return nil }
-        guard let model = activeModel else {
+        guard let model = model ?? activeModel else {
             AppLog.info("Style \(style.rawValue): skipped, no AI model available (\(availability))")
             return nil
         }
@@ -208,9 +209,9 @@ final class AIRewriter {
     }
 
     /// Voice editing: applies a spoken instruction ("make this shorter") to the selected text.
-    func edit(_ selection: String, instruction: String) async throws -> String {
+    func edit(_ selection: String, instruction: String, using model: TextModel? = nil) async throws -> String {
         struct EditError: LocalizedError { let errorDescription: String? }
-        guard let model = activeModel else {
+        guard let model = model ?? activeModel else {
             if case .unavailable(let reason) = availability { throw EditError(errorDescription: reason) }
             throw EditError(errorDescription: "No AI model is available.")
         }

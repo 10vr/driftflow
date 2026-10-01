@@ -503,12 +503,30 @@ struct HUDView: View {
     @State private var shownTextWidth: CGFloat = 0
     private var transcriptOverflows: Bool { fullTextWidth > shownTextWidth + 1 }
 
+    static let editHintSeconds = 2.4
+    static let editHints = [
+        "Say how to change the selection",
+        "Try “make it shorter”",
+        "Try “turn this into bullet points”",
+        "Try “fix the grammar”",
+        "Try “make it more formal”",
+        "Try “translate it into Spanish”",
+    ]
+
     private var transcriptText: some View {
         Group {
             if let status = controller.statusMessage {
                 Text(status).foregroundStyle(.secondary)
             } else if controller.editing, !hasText {
-                Text("\(Image(systemName: "wand.and.sparkles")) Say how to change the selection").foregroundStyle(.secondary)
+                // What to say, then examples in turn, for people who don't know what to ask for yet.
+                TimelineView(.periodic(from: controller.editingSince, by: Self.editHintSeconds)) { context in
+                    let index = Int(context.date.timeIntervalSince(controller.editingSince) / Self.editHintSeconds) % Self.editHints.count
+                    Text("\(Image(systemName: "wand.and.sparkles")) \(Self.editHints[index])")
+                        .foregroundStyle(.secondary)
+                        .id(index)
+                        .transition(.opacity)
+                        .animation(.easeInOut(duration: 0.25), value: index)
+                }
             } else {
                 Text("\(controller.finalizedText)\(Text(controller.volatileText).foregroundStyle(.secondary))")
             }
@@ -564,6 +582,17 @@ struct HUDView: View {
 
 /// The app icon's neon palette (Display P3), so the live meter matches the logo.
 enum Brand {
+    /// The app icon, sharp at `points` on any display. NSApp.applicationIconImage is a small
+    /// rendition for a menu bar app, and goes blurry when shown large.
+    static func appIcon(points: CGFloat) -> Image {
+        let pixels = points * 2 // the Retina rendition; scaled down on other displays
+        var rect = CGRect(x: 0, y: 0, width: pixels, height: pixels)
+        let icon = Bundle.main.url(forResource: "AppIcon", withExtension: "icns").flatMap(NSImage.init(contentsOf:))
+            ?? NSApp.applicationIconImage
+        guard let image = icon?.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return Image(systemName: "app") }
+        return Image(decorative: image, scale: 2)
+    }
+
     static let pink = Color(.displayP3, red: 1.0, green: 0x5D / 255, blue: 0xB1 / 255)
     static let violet = Color(.displayP3, red: 0x9B / 255, green: 0x5C / 255, blue: 1.0)
     static let cyan = Color(.displayP3, red: 0x4F / 255, green: 0xE7 / 255, blue: 1.0)

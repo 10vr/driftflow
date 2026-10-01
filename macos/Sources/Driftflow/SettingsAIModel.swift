@@ -13,6 +13,9 @@ struct AIModelPane: View {
     var body: some View {
         Form {
             Section {
+                Text("It tidies what you dictate into a style (Settings › Styles), and changes selected text when you press \(settings.editShortcut?.display ?? "the edit shortcut") and say how. Try it below.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: inUse == nil ? "exclamationmark.triangle" : "sparkles")
                         .foregroundStyle(inUse == nil ? AnyShapeStyle(.orange) : AnyShapeStyle(Brand.gradient))
@@ -31,6 +34,9 @@ struct AIModelPane: View {
                     TextModelRow(model: model,
                                  selected: settings.textModel == model,
                                  status: models.status(of: model),
+                                 elsewhere: models.downloadingElsewhere.contains(model),
+                                 keptForOtherApp: model.needsDownload && models.isDownloaded(model) && !models.usedHere(model)
+                                     && settings.textModel != model && models.usedByOtherApp(model),
                                  inUse: inUse == model,
                                  unavailable: model == .apple && !appleUsable ? AIRewriter.appleUnavailableReason : nil,
                                  select: { select(model) },
@@ -41,9 +47,11 @@ struct AIModelPane: View {
             } header: {
                 Text("Model")
             } footer: {
-                Text("Measured on an M5 MacBook with the same 45 test dictations (15 sentences in each of the 3 styles) and 16 voice edits for every model. A rewrite counts when it says what you dictated, tidied up; an edit when it does what you asked. Speed is the time from letting go of the key to the rewritten sentence; older Macs take longer (an M1 about twice as long). Qwen and Gemma run on this Mac's graphics chip and are loaded only while you use them, then freed after 5 idle minutes. They download once from Hugging Face; Driftline uses the same files, so they're never downloaded twice.")
+                Text("Measured on an M5 MacBook with the same 45 test dictations (15 sentences in each of the 3 styles) and 16 voice edits for every model. A rewrite counts when it says what you dictated, tidied up; an edit when it does what you asked. Speed is the time from letting go of the key to the rewritten sentence; older Macs take longer (an M1 about twice as long). Qwen and Gemma run on this Mac's graphics chip and are loaded only while you use them, then freed after 5 idle minutes. They download once from Hugging Face into a folder Driftline shares: a model is downloaded once for both apps, and when both use it at the same time it's in memory once.")
                     .foregroundStyle(.secondary)
             }
+
+            AITrySection(models: models, chosen: settings.textModel)
         }
         .onAppear {
             models.refresh()
@@ -60,7 +68,11 @@ struct AIModelPane: View {
                 pendingDelete = nil
             }
         } message: {
-            Text("Frees \(pendingDelete?.downloadSize ?? "") of disk space. You can download it again any time. Driftline keeps its own copy, if it has one.")
+            if let model = pendingDelete, models.usedByOtherApp(model) {
+                Text("\(TextModelManager.otherApp ?? "Driftline") uses this model too, so it stays on your Mac (\(model.downloadSize)) until you delete it there as well. Driftflow stops using it.")
+            } else {
+                Text("Frees \(pendingDelete?.downloadSize ?? "") of disk space. You can download it again any time.")
+            }
         }
     }
 
@@ -93,6 +105,10 @@ private struct TextModelRow: View {
     let model: TextModel
     let selected: Bool
     let status: ModelManager.Status
+    /// Driftline is downloading it (this app waits instead of downloading it again).
+    var elsewhere = false
+    /// Deleted here, but on disk because Driftline uses it.
+    var keptForOtherApp = false
     let inUse: Bool
     /// Why Apple's model can't run here.
     let unavailable: String?
@@ -153,10 +169,13 @@ private struct TextModelRow: View {
         switch status {
         case .downloading(let progress):
             HStack(spacing: 8) {
-                ProgressView(value: progress)
-                    .progressViewStyle(.circular)
-                    .controlSize(.small)
-                Text(progress >= 1 ? "Checking…" : "\(Int(progress * 100))%")
+                Group {
+                    if elsewhere { ProgressView() } else { ProgressView(value: progress) }
+                }
+                .progressViewStyle(.circular)
+                .controlSize(.small)
+                .help(elsewhere ? "\(TextModelManager.otherApp ?? "The other app") is downloading this model; Driftflow will use the same file." : "")
+                Text(elsewhere ? "In \(TextModelManager.otherApp ?? "the other app")…" : progress >= 1 ? "Checking…" : "\(Int(progress * 100))%")
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
                 Button { cancel() } label: { Image(systemName: "xmark.circle.fill") }
@@ -181,7 +200,9 @@ private struct TextModelRow: View {
                 HStack(spacing: 6) {
                     Button("Use", action: select)
                         .glassButtonStyle()
-                    if model.needsDownload {
+                    if keptForOtherApp {
+                        Text("Kept for \(TextModelManager.otherApp ?? "Driftline")").font(.caption).foregroundStyle(.secondary)
+                    } else if model.needsDownload {
                         Button(role: .destructive, action: delete) { Image(systemName: "trash") }
                             .buttonStyle(.borderless)
                             .foregroundStyle(.secondary)
@@ -219,5 +240,120 @@ extension AIModelPane {
         window.contentView = NSHostingView(rootView: rows)
         window.setContentSize(window.contentView!.fittingSize)
         return window
+    }
+}
+
+/// Settings › AI Model › Try it: a sentence through any ready model, in a style or with a spoken-style
+/// edit instruction, so you can compare the models on your own words. Nothing is saved.
+private struct AITrySection: View {
+    @ObservedObject var models: TextModelManager
+    let chosen: TextModel
+
+    enum Mode: String, CaseIterable, Identifiable {
+        case clean, professional, casual, edit
+        var id: String { rawValue }
+        var label: String { self == .edit ? "Edit" : AIStyle(rawValue: rawValue)?.label ?? rawValue }
+    }
+
+    static let sampleDictation = "yeah that's gonna be kinda tricky cause the client wants like everything done by friday"
+    static let sampleSelection = "hey, can u send me the report asap? need it for the meeting tmrw. thx"
+
+    @State private var model: TextModel?
+    @State private var mode: Mode = .professional
+    @State private var input = sampleDictation
+    @State private var instruction = "make it more formal"
+    @State private var result: String?
+    @State private var note: String?
+    @State private var seconds: Double?
+    @State private var running = false
+
+    /// Models that can run now: downloaded ones, and Apple's when it's on.
+    private var ready: [TextModel] {
+        TextModel.allCases.filter { $0 == .apple ? TextModel.appleModelUsable : models.isDownloaded($0) }
+    }
+
+    var body: some View {
+        Section {
+            if ready.isEmpty {
+                Text("Download a model above to try it.").foregroundStyle(.secondary)
+            } else {
+                Picker("Model", selection: Binding(get: { model ?? (ready.contains(chosen) ? chosen : ready[0]) }, set: { model = $0 })) {
+                    ForEach(ready) { Text($0.displayName).tag($0) }
+                }
+                Picker("Try", selection: $mode) {
+                    ForEach(Mode.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: mode) { old, new in
+                    // Swap in the matching sample if the box still holds the other one.
+                    if new == .edit, input == Self.sampleDictation { input = Self.sampleSelection }
+                    if old == .edit, new != .edit, input == Self.sampleSelection { input = Self.sampleDictation }
+                    result = nil; note = nil; seconds = nil
+                }
+                if mode == .edit {
+                    TextField("Say", text: $instruction, prompt: Text("make it shorter"))
+                }
+                TextField(mode == .edit ? "Selected text" : "You said", text: $input, axis: .vertical)
+                    .lineLimit(2...6)
+                HStack {
+                    Button(mode == .edit ? "Edit" : "Rewrite") { run() }
+                        .glassButtonStyle()
+                        .disabled(running || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                  || (mode == .edit && instruction.trimmingCharacters(in: .whitespaces).isEmpty))
+                    if running { ProgressView().controlSize(.small) }
+                    Spacer()
+                    if let seconds {
+                        Text(String(format: "%.1f s", seconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+                if let result {
+                    Text(result)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                        .background(Color.accentColor.opacity(0.08), in: .rect(cornerRadius: 8))
+                }
+                if let note {
+                    Label(note, systemImage: "info.circle").font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } header: {
+            Text("Try it")
+        } footer: {
+            Text("Type, or dictate into the box. Styles get the same clean-up as a dictation first (filler words, your replacements). The first try loads the model, which takes a second or two. Nothing is saved.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func run() {
+        let model = model ?? (ready.contains(chosen) ? chosen : ready.first)
+        guard let model else { return }
+        running = true
+        result = nil; note = nil; seconds = nil
+        let text = input, instruction = instruction, mode = mode
+        let started = Date()
+        Task { @MainActor in
+            defer {
+                running = false
+                seconds = Date().timeIntervalSince(started)
+            }
+            if mode == .edit {
+                do { result = try await AIRewriter.shared.edit(text, instruction: instruction, using: model) }
+                catch { note = error.localizedDescription }
+                return
+            }
+            guard let style = AIStyle(rawValue: mode.rawValue) else { return }
+            let said = AppSettings.shared.textProcessor.process(text, english: true)
+            if let rewritten = await AIRewriter.shared.rewrite(said, style: style, using: model) {
+                result = rewritten
+            } else {
+                result = said
+                let wrote = AIRewriter.shared.lastOutput.map { AIRewriter.tidy($0) } ?? ""
+                note = wrote.isEmpty
+                    ? "\(model.displayName) didn't answer in time, so your words would be typed as said."
+                    : "The rewrite didn't pass the safety check, so your words would be typed as said. It wrote: “\(wrote.prefix(200))”"
+            }
+        }
     }
 }

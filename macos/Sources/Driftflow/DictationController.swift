@@ -107,6 +107,8 @@ final class DictationController: ObservableObject {
     private var editSelection: String?
     /// True while dictating an instruction for the selected text (the pill says so).
     @Published private(set) var editing = false
+    /// When the current voice edit started (the pill's hints rotate from it).
+    private(set) var editingSince = Date()
     private let corrections = CorrectionWatcher()
     /// `systemUptime` when the key went down (nil when started from the menu).
     private var pressedAt: TimeInterval?
@@ -249,6 +251,7 @@ final class DictationController: ObservableObject {
         sounds.preload(settings.soundStyle)
 
         if microphoneAuthorized { applyMicMode(settings.micMode) }
+        _ = TextModelManager.shared // moves models from older versions' folder into the shared one, now
         if !microphoneAuthorized || !accessibilityGranted {
             UserDefaults.standard.set(true, forKey: Self.suggestedModelKey) // setup's AI model step covers it
             showOnboarding()
@@ -1140,6 +1143,7 @@ final class DictationController: ObservableObject {
                 return showToast(HUDToast(icon: "text.cursor", text: "Select the text you want to change first, then press \(key)."), for: 4)
             }
             editSelection = selection
+            editingSince = Date()
             editing = true
             pressedAt = nil
             start(handsFree: true)

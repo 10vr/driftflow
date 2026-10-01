@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import Foundation
 import llama
@@ -138,36 +139,85 @@ enum TextModel: String, CaseIterable, Identifiable {
 
 // MARK: - Downloads
 
-/// Which local models are on disk; downloads, verifies and deletes them. Driftline (the call
-/// recorder) uses the same files: whichever app downloads a model first, the other makes an APFS
-/// clone of it, which takes no extra disk space and leaves each app free to delete its own copy.
+/// Which local models are on disk; downloads, verifies and deletes them.
+///
+/// Shared with Driftline (the call recorder), by a convention both apps follow (macos/README.md ›
+/// Models shared with Driftline). One copy of each model sits in a folder that belongs to neither app,
+/// and both read it in place: macOS then holds it in memory once even when both apps use it at the same
+/// time, each adding only its own working memory (about 0.3 GB). A copy or an APFS clone would be a
+/// different file to macOS and be loaded twice. Whichever app needs a model first downloads it while
+/// holding `<file>.lock`; the other app waits for that download instead of starting its own. Each app
+/// marks the models it uses (`<file>.used-by-driftflow`), so deleting one in one app doesn't take it
+/// from the other.
 @MainActor
 final class TextModelManager: ObservableObject {
     static let shared = TextModelManager()
 
     @Published private(set) var status: [TextModel: ModelManager.Status] = [:]
+    /// Models the other app is downloading right now (this one waits for it to finish).
+    @Published private(set) var downloadingElsewhere: Set<TextModel> = []
 
     private var downloads: [TextModel: FileDownload] = [:]
+    private var locks: [TextModel: DownloadLock] = [:]
+    private var waits: [TextModel: Task<Void, Never>] = [:]
 
-    private init() { refresh() }
+    private init() {
+        Self.moveFromOldFolders()
+        refresh()
+    }
 
     nonisolated static var folder: URL {
         if let override = ProcessInfo.processInfo.environment["DRIFTFLOW_LANGUAGE_MODELS"] { // tests
             return URL(fileURLWithPath: override, isDirectory: true)
         }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Driftflow/Language Models", isDirectory: true)
+        return applicationSupport.appendingPathComponent("Drift/Language Models", isDirectory: true)
     }
 
-    /// Where Driftline keeps the same files.
-    nonisolated static var driftlineFolder: URL {
+    nonisolated private static var applicationSupport: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Driftline/Models/Language Models", isDirectory: true)
     }
 
     nonisolated static func fileURL(for model: TextModel) -> URL? {
         model.file.map { folder.appendingPathComponent($0.name) }
     }
+
+    nonisolated private static func sidecar(_ model: TextModel, _ suffix: String) -> URL? {
+        model.file.map { folder.appendingPathComponent($0.name + suffix) }
+    }
+
+    // MARK: Which app uses what
+
+    /// The apps that share these models, by the name in their marker files.
+    nonisolated private static let apps = ["driftflow": "dev.driftflow.app", "driftline": "dev.driftline.app"]
+    nonisolated private static let me = "driftflow"
+    nonisolated private static let other = "driftline"
+
+    /// The other app's name, if it's installed.
+    static var otherApp: String? { isInstalled(other) ? "Driftline" : nil }
+
+    private static func isInstalled(_ app: String) -> Bool {
+        apps[app].flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) } != nil
+    }
+
+    /// Notes that Driftflow uses `model` (when it downloads or loads it).
+    nonisolated static func markUsed(_ model: TextModel) {
+        guard let marker = sidecar(model, ".used-by-\(me)"), !FileManager.default.fileExists(atPath: marker.path) else { return }
+        FileManager.default.createFile(atPath: marker.path, contents: nil)
+    }
+
+    /// Driftline uses `model` too. A marker left by an app that's no longer installed doesn't count, and is removed.
+    func usedByOtherApp(_ model: TextModel) -> Bool {
+        guard let marker = Self.sidecar(model, ".used-by-\(Self.other)"), FileManager.default.fileExists(atPath: marker.path) else { return false }
+        if Self.isInstalled(Self.other) { return true }
+        try? FileManager.default.removeItem(at: marker)
+        return false
+    }
+
+    func usedHere(_ model: TextModel) -> Bool {
+        Self.sidecar(model, ".used-by-\(Self.me)").map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+    }
+
+    // MARK: State
 
     func status(of model: TextModel) -> ModelManager.Status {
         model.needsDownload ? status[model] ?? .notDownloaded : .downloaded
@@ -175,43 +225,81 @@ final class TextModelManager: ObservableObject {
 
     func isDownloaded(_ model: TextModel) -> Bool { status(of: model) == .downloaded }
 
+    /// Re-checks the files (the other app may have downloaded or deleted one).
     func refresh() {
         for model in TextModel.allCases where model.needsDownload {
             if case .downloading = status[model] { continue }
-            Self.adoptShared(model)
             status[model] = Self.isComplete(model) ? .downloaded : .notDownloaded
         }
     }
 
-    /// A finished copy: the right size (the checksum is checked once, when it's downloaded).
+    /// A finished copy: the exact size. The checksum is checked once, by whichever app downloads it,
+    /// before the file gets its final name.
     nonisolated static func isComplete(_ model: TextModel) -> Bool {
         guard let file = model.file, let url = fileURL(for: model),
               let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
         return Int64(size) == file.bytes
     }
 
-    /// Clones Driftline's copy when it has one and Driftflow doesn't.
-    nonisolated private static func adoptShared(_ model: TextModel) {
-        guard let file = model.file, let target = fileURL(for: model), !isComplete(model) else { return }
-        let source = driftlineFolder.appendingPathComponent(file.name)
-        guard let size = try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize, Int64(size) == file.bytes else { return }
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: target)
-        if clonefile(source.path, target.path, 0) == 0 {
-            AppLog.info("\(model.displayName): cloned Driftline's copy, no download needed")
-        } else {
-            AppLog.info("\(model.displayName): couldn't clone Driftline's copy (errno \(errno)); it will be downloaded")
+    /// Moves a model downloaded before the apps shared them (Driftflow 0.2.23 kept them in its own
+    /// folder) into the shared folder: a rename on the same disk, so it's instant, and a running app
+    /// keeps working. From the other app's old folder only a complete file is moved, only when the
+    /// shared folder lacks it, and only when that app isn't installed (an older copy of it would look for
+    /// the file there); nothing else there is touched.
+    private static func moveFromOldFolders() {
+        guard ProcessInfo.processInfo.environment["DRIFTFLOW_LANGUAGE_MODELS"] == nil else { return }
+        let manager = FileManager.default
+        let mine = applicationSupport.appendingPathComponent("Driftflow/Language Models", isDirectory: true)
+        let theirs = applicationSupport.appendingPathComponent("Driftline/Models/Language Models", isDirectory: true)
+        let folders = isInstalled(other) ? [(mine, true)] : [(mine, true), (theirs, false)]
+        for model in TextModel.allCases {
+            guard let file = model.file, let target = fileURL(for: model) else { continue }
+            for (folder, own) in folders {
+                let old = folder.appendingPathComponent(file.name)
+                guard let size = try? old.resourceValues(forKeys: [.fileSizeKey]).fileSize else { continue }
+                if isComplete(model) {
+                    if own { try? manager.removeItem(at: old); markUsed(model) }
+                } else if Int64(size) == file.bytes {
+                    try? manager.createDirectory(at: Self.folder, withIntermediateDirectories: true)
+                    try? manager.removeItem(at: target)
+                    if (try? manager.moveItem(at: old, to: target)) != nil {
+                        AppLog.info("\(model.displayName): moved into the shared models folder")
+                        if own { markUsed(model) }
+                    }
+                }
+            }
         }
+        if (try? manager.contentsOfDirectory(atPath: mine.path))?.isEmpty == true { try? manager.removeItem(at: mine) }
     }
 
+    // MARK: Downloading
+
     func download(_ model: TextModel) {
-        guard let file = model.file, downloads[model] == nil, !isDownloaded(model) else { return }
+        guard let file = model.file, let lockURL = Self.sidecar(model, ".lock"), let partial = Self.sidecar(model, ".download"),
+              downloads[model] == nil, waits[model] == nil else { return }
+        guard !Self.isComplete(model) else {
+            Self.markUsed(model)
+            status[model] = .downloaded
+            return
+        }
+        try? FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
+        switch DownloadLock.acquire(lockURL) {
+        case .busy:
+            waitForOtherApp(model, lock: lockURL)
+            return
+        case .acquired(let lock):
+            locks[model] = lock
+        case .unavailable:
+            break // can't lock (unusual permissions): download anyway
+        }
+        try? FileManager.default.removeItem(at: partial) // only the lock holder writes it: a leftover
         status[model] = .downloading(0)
         AppLog.info("\(model.displayName): downloading \(file.name)")
-        let download = FileDownload(url: file.url) { [weak self] progress in
+        let download = FileDownload(url: file.url, keepAt: partial) { [weak self] written, total in
             Task { @MainActor in
                 guard let self, self.downloads[model] != nil else { return }
-                self.status[model] = .downloading(progress)
+                self.locks[model]?.write("\(written) \(total)\n") // for the other app's progress bar
+                self.status[model] = .downloading(Double(written) / Double(max(total, 1)))
             }
         } completion: { [weak self] result in
             Task { @MainActor in await self?.finish(model, result) }
@@ -220,29 +308,67 @@ final class TextModelManager: ObservableObject {
         download.start()
     }
 
+    /// The other app is downloading `model`: show its progress and use its file, instead of
+    /// downloading it twice. If it stops without finishing (cancelled, or quit), download it here.
+    private func waitForOtherApp(_ model: TextModel, lock: URL) {
+        AppLog.info("\(model.displayName): the other app is downloading it; waiting for that")
+        status[model] = .downloading(0)
+        downloadingElsewhere.insert(model)
+        waits[model] = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, !Task.isCancelled else { return }
+                let complete = Self.isComplete(model)
+                var stopped = false
+                if !complete, case .acquired = DownloadLock.acquire(lock) { stopped = true } // released at once
+                guard complete || stopped else {
+                    if let progress = DownloadLock.progress(lock) { self.status[model] = .downloading(progress) }
+                    continue
+                }
+                self.waits[model] = nil
+                self.downloadingElsewhere.remove(model)
+                if complete {
+                    AppLog.info("\(model.displayName): the other app finished downloading it")
+                    Self.markUsed(model)
+                    self.status[model] = .downloaded
+                } else {
+                    self.status[model] = .notDownloaded
+                    self.download(model)
+                }
+                return
+            }
+        }
+    }
+
     private func finish(_ model: TextModel, _ result: Result<URL, Error>) async {
         guard downloads[model] != nil, let file = model.file, let target = Self.fileURL(for: model) else { return }
-        defer { downloads[model] = nil }
+        defer {
+            downloads[model] = nil
+            locks[model] = nil // releases the lock: the other app sees the file, or may download it itself
+        }
         switch result {
         case .failure(let error):
             AppLog.error("\(model.displayName): download failed: \(error.localizedDescription)")
             status[model] = .failed(error.localizedDescription)
-        case .success(let temporary):
+        case .success(let partial):
             status[model] = .downloading(1)
             let verified = await Task.detached(priority: .utility) { () -> Bool in
-                guard (try? temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) == file.bytes else { return false }
-                return Self.sha256(of: temporary) == file.sha256
+                guard (try? partial.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) == file.bytes else { return false }
+                return Self.sha256(of: partial) == file.sha256
             }.value
             guard verified else {
-                try? FileManager.default.removeItem(at: temporary)
+                try? FileManager.default.removeItem(at: partial)
                 AppLog.error("\(model.displayName): downloaded file didn't match its checksum")
                 status[model] = .failed("The download was damaged. Try again.")
                 return
             }
             do {
-                try FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
+                // Readable by the other app, and given its final name only now, in one step, so neither
+                // app ever sees half a model.
+                try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: partial.path)
                 try? FileManager.default.removeItem(at: target)
-                try FileManager.default.moveItem(at: temporary, to: target)
+                try FileManager.default.moveItem(at: partial, to: target)
+                Self.markUsed(model)
                 AppLog.info("\(model.displayName): downloaded and verified")
                 status[model] = .downloaded
             } catch {
@@ -252,17 +378,34 @@ final class TextModelManager: ObservableObject {
     }
 
     func cancelDownload(_ model: TextModel) {
+        if let wait = waits[model] {
+            wait.cancel()
+            waits[model] = nil
+            downloadingElsewhere.remove(model)
+        }
         downloads[model]?.cancel()
         downloads[model] = nil
+        if locks[model] != nil, let partial = Self.sidecar(model, ".download") { try? FileManager.default.removeItem(at: partial) }
+        locks[model] = nil
         status[model] = Self.isComplete(model) ? .downloaded : .notDownloaded
     }
 
-    func delete(_ model: TextModel) {
-        guard let url = Self.fileURL(for: model) else { return }
+    /// Stops Driftflow using `model`. The file itself goes only when Driftline doesn't use it either;
+    /// otherwise it stays for Driftline (returns false).
+    @discardableResult
+    func delete(_ model: TextModel) -> Bool {
+        guard let url = Self.fileURL(for: model) else { return false }
         LocalLLM.shared.unload(model)
+        if let marker = Self.sidecar(model, ".used-by-\(Self.me)") { try? FileManager.default.removeItem(at: marker) }
+        guard !usedByOtherApp(model) else {
+            AppLog.info("\(model.displayName): no longer used by Driftflow; kept for Driftline")
+            objectWillChange.send()
+            return false
+        }
+        // If Driftline has it loaded right now, it keeps working until it frees it; macOS frees the space then.
         try? FileManager.default.removeItem(at: url)
-        // Deleted on purpose: don't clone Driftline's copy straight back.
         status[model] = .notDownloaded
+        return true
     }
 
     nonisolated private static func sha256(of url: URL) -> String? {
@@ -274,16 +417,66 @@ final class TextModelManager: ObservableObject {
     }
 }
 
-/// One file download with progress, kept on disk until the caller moves it.
+/// `<file>.lock`, held with flock while an app downloads that model. The system releases it if the
+/// app quits or crashes, so a stopped download never blocks the other app. The file itself stays
+/// (removing a file someone may hold a lock on would break the lock); the holder writes its progress
+/// in it as "<bytes written> <total bytes>", for the other app to show.
+private final class DownloadLock {
+    enum Outcome {
+        case acquired(DownloadLock)
+        /// Another app holds it.
+        case busy
+        case unavailable
+    }
+
+    private let descriptor: Int32
+
+    private init(_ descriptor: Int32) { self.descriptor = descriptor }
+
+    static func acquire(_ url: URL) -> Outcome {
+        let descriptor = open(url.path, O_CREAT | O_RDWR, 0o644)
+        guard descriptor >= 0 else { return .unavailable }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            close(descriptor)
+            return .busy
+        }
+        return .acquired(DownloadLock(descriptor))
+    }
+
+    /// The holder's progress, 0…1.
+    static func progress(_ url: URL) -> Double? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let numbers = text.split(whereSeparator: \.isWhitespace).compactMap { Double($0) }
+        guard numbers.count == 2, numbers[1] > 0 else { return nil }
+        return min(numbers[0] / numbers[1], 1)
+    }
+
+    func write(_ text: String) {
+        let bytes = Array(text.utf8)
+        ftruncate(descriptor, 0)
+        _ = pwrite(descriptor, bytes, bytes.count, 0)
+    }
+
+    deinit {
+        ftruncate(descriptor, 0)
+        flock(descriptor, LOCK_UN)
+        close(descriptor)
+    }
+}
+
+/// One file download with progress. The finished file is moved to `keepAt` (`<file>.download`)
+/// for the caller to check and rename.
 private final class FileDownload: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let url: URL
-    private let progress: (Double) -> Void
+    private let keepAt: URL
+    private let progress: (Int64, Int64) -> Void
     private let completion: (Result<URL, Error>) -> Void
     private var session: URLSession?
     private var lastReport = Date.distantPast
 
-    init(url: URL, progress: @escaping (Double) -> Void, completion: @escaping (Result<URL, Error>) -> Void) {
+    init(url: URL, keepAt: URL, progress: @escaping (Int64, Int64) -> Void, completion: @escaping (Result<URL, Error>) -> Void) {
         self.url = url
+        self.keepAt = keepAt
         self.progress = progress
         self.completion = completion
     }
@@ -301,22 +494,21 @@ private final class FileDownload: NSObject, URLSessionDownloadDelegate, @uncheck
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard totalBytesExpectedToWrite > 0, Date().timeIntervalSince(lastReport) > 0.25 else { return }
+        guard totalBytesExpectedToWrite > 0, Date().timeIntervalSince(lastReport) > 0.5 else { return }
         lastReport = Date()
-        progress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+        progress(totalBytesWritten, totalBytesExpectedToWrite)
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        // The system deletes `location` when this returns: keep it next to the models (same volume, so the move is instant).
+        // The system deletes `location` when this returns, so it's moved now.
         if let status = (downloadTask.response as? HTTPURLResponse)?.statusCode, status != 200 {
             completion(.failure(URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "The server answered \(status)."])))
             return
         }
-        let kept = TextModelManager.folder.appendingPathComponent(UUID().uuidString + ".download")
         do {
-            try FileManager.default.createDirectory(at: TextModelManager.folder, withIntermediateDirectories: true)
-            try FileManager.default.moveItem(at: location, to: kept)
-            completion(.success(kept))
+            try? FileManager.default.removeItem(at: keepAt)
+            try FileManager.default.moveItem(at: location, to: keepAt)
+            completion(.success(keepAt))
         } catch {
             completion(.failure(error))
         }
@@ -448,6 +640,7 @@ final class LocalLLM: @unchecked Sendable {
         self.model = model
         self.context = context
         loaded = wanted
+        TextModelManager.markUsed(wanted) // Driftline then knows Driftflow uses this file
         memory = []
         if !exitHookInstalled {
             // llama.cpp's GPU code asserts at exit if a model is still loaded (a crash report on every

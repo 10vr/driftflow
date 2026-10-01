@@ -44,8 +44,9 @@ private struct UpdateView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 14) {
-                Image(nsImage: NSApp.applicationIconImage)
+                Brand.appIcon(points: 56)
                     .resizable()
+                    .interpolation(.high)
                     .frame(width: 56, height: 56)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Driftflow \(version) is ready")

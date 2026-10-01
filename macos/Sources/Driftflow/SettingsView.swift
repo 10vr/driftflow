@@ -858,24 +858,28 @@ private struct StackKeyRecorder: View {
 struct KeyCaps: View {
     let keys: [String]
     var lit = false
+    /// Drawn at this size (setup shows them large). Never enlarge them with scaleEffect: that
+    /// stretches the drawn picture, and the text goes blurry.
+    var scale: CGFloat = 1
 
-    init(_ keys: [String], lit: Bool = false) {
+    init(_ keys: [String], lit: Bool = false, scale: CGFloat = 1) {
         self.keys = keys
         self.lit = lit
+        self.scale = scale
     }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 4 * scale) {
             ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
                 Text(key)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .frame(minWidth: 22, minHeight: 22)
-                    .padding(.horizontal, key.count > 1 ? 6 : 0)
+                    .font(.system(size: 12 * scale, weight: .semibold, design: .rounded))
+                    .frame(minWidth: 22 * scale, minHeight: 22 * scale)
+                    .padding(.horizontal, key.count > 1 ? 6 * scale : 0)
                     .background(lit ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary),
-                                in: .rect(cornerRadius: 6))
+                                in: .rect(cornerRadius: 6 * scale))
                     .foregroundStyle(lit ? .white : .primary)
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(lit ? 0.35 : 0.08)))
-                    .shadow(color: lit ? Color.accentColor.opacity(0.45) : .clear, radius: 6)
+                    .overlay(RoundedRectangle(cornerRadius: 6 * scale).strokeBorder(.white.opacity(lit ? 0.35 : 0.08), lineWidth: max(1, scale * 0.6)))
+                    .shadow(color: lit ? Color.accentColor.opacity(0.45) : .clear, radius: 6 * scale)
             }
         }
         .animation(.easeOut(duration: 0.12), value: lit)

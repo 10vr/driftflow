@@ -15,6 +15,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/Driftflow" "$APP/Contents/MacOS/Driftflow"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# The build time as the build number, like a release: the updater then never offers an older
+# release over this build (and installs it when you quit), but still offers newer ones.
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d%H%M)" "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp Resources/Sounds/*.caf "$APP/Contents/Resources/"
 cp -R Resources/Licenses "$APP/Contents/Resources/" # third-party licences (llama.cpp)

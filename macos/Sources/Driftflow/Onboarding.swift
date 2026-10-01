@@ -317,8 +317,9 @@ private struct WelcomeCard: View {
     var body: some View {
         VStack(spacing: 26) {
             Spacer()
-            Image(nsImage: NSApp.applicationIconImage)
+            Brand.appIcon(points: 110)
                 .resizable()
+                .interpolation(.high)
                 .frame(width: 110, height: 110)
                 .shadow(color: Brand.violet.opacity(0.35), radius: 24, y: 8)
             VStack(alignment: .leading, spacing: 16) {
@@ -450,8 +451,7 @@ private struct ShortcutCard: View {
     var body: some View {
         VStack(spacing: 28) {
             Spacer()
-            KeyCaps(capLabels, lit: controller.triggerHeld)
-                .scaleEffect(2.2)
+            KeyCaps(capLabels, lit: controller.triggerHeld, scale: 2.2)
                 .frame(height: 70)
             Text(controller.triggerHeld ? "Got it. Let go to finish." : "Hold \(settings.trigger.label)")
                 .font(.headline)
@@ -732,6 +732,17 @@ private struct AIModelStep: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // What you'd get: real results from Qwen in our tests.
+            HStack(alignment: .top, spacing: 10) {
+                AIExampleCard(title: "Styles", detail: "Professional",
+                              before: "yeah that's gonna be kinda tricky cause the client wants like everything done by friday",
+                              after: "That will be quite tricky, as the client requires everything to be completed by Friday.")
+                AIExampleCard(title: "Edit by voice", detail: "\(settings.editShortcut?.display ?? "⌃⌥E") · “make it more formal”",
+                              before: "hey, can u send me the report asap? need it for the meeting tmrw. thx",
+                              after: "Hello, could you please send me the report as soon as possible? I need it for the meeting tomorrow. Thank you.")
+            }
+            .fixedSize(horizontal: false, vertical: true) // the cards' own height, not the whole panel
+            .padding(.bottom, 4)
             ForEach(TextModel.allCases) { model in
                 Button { withAnimation(.snappy) { settings.textModel = model } } label: {
                     HStack(alignment: .top, spacing: 12) {
@@ -747,7 +758,8 @@ private struct AIModelStep: View {
                         }
                         Spacer()
                     }
-                    .padding(12)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
                     .contentShape(.rect)
                     .glassSurface(in: .rect(cornerRadius: 12))
                 }
@@ -783,8 +795,13 @@ private struct AIModelStep: View {
         let model = settings.textModel
         switch models.status(of: model) {
         case .downloading(let progress):
-            ProgressView(value: progress).frame(width: 160)
-            Text(progress >= 1 ? "Checking…" : "Downloading, \(Int(progress * 100))%").font(.callout).foregroundStyle(.secondary)
+            if models.downloadingElsewhere.contains(model) {
+                ProgressView().controlSize(.small)
+                Text("\(TextModelManager.otherApp ?? "Another app") is downloading it; Driftflow will use the same file.").font(.callout).foregroundStyle(.secondary)
+            } else {
+                ProgressView(value: progress).frame(width: 160)
+                Text(progress >= 1 ? "Checking…" : "Downloading, \(Int(progress * 100))%").font(.callout).foregroundStyle(.secondary)
+            }
         case .notDownloaded, .failed:
             Button("Download \(model.displayName) (\(model.downloadSize))") { models.download(model) }
                 .glassButtonStyle()
@@ -798,5 +815,34 @@ private struct AIModelStep: View {
                 Label("\(model.displayName) is ready", systemImage: "checkmark.circle.fill").font(.callout.weight(.medium)).foregroundStyle(.green)
             }
         }
+    }
+}
+
+/// One "you said → it wrote" example on the AI writing step.
+private struct AIExampleCard: View {
+    let title: String
+    let detail: String
+    let before: String
+    let after: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 5) {
+                Image(systemName: "sparkles").foregroundStyle(Brand.gradient)
+                Text(title).font(.caption.weight(.semibold))
+            }
+            Text(detail).font(.caption2).foregroundStyle(.secondary)
+            Text("“\(before)”")
+                .font(.caption)
+                .italic()
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(after)
+                .font(.caption.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading) // as tall as the taller card
+        .glassSurface(in: .rect(cornerRadius: 12))
     }
 }

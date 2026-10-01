@@ -336,7 +336,13 @@ final class FilesWindow {
     /// Renders any window's content to a PNG (developer aid).
     static func capture(_ window: NSWindow?, to url: URL) {
         guard let view = window?.contentView?.superview ?? window?.contentView else { return }
-        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        // At the screen's scale (2× on Retina), so blurry drawing shows up as it would on screen.
+        let scale = max(window?.backingScaleFactor ?? 2, 2)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(view.bounds.width * scale),
+                                         pixelsHigh: Int(view.bounds.height * scale), bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return }
+        rep.size = view.bounds.size
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: url)
     }
