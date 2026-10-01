@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.25</title>
+            <pubDate>Thu, 01 Oct 2026 15:33:43 GMT</pubDate>
+            <sparkle:version>202610012333</sparkle:version>
+            <sparkle:shortVersionString>0.2.25</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>If you set up Driftflow before it had its own AI model, a What&#x27;s New window shows what it does, with real examples, and lets you download Qwen 3.5 4B (2.7 GB) or skip it. Nothing downloads without asking, and Apple Intelligence keeps working until the model is ready.</p><p>The pill tells you when a downloaded AI model is ready.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.25/Driftflow-0.2.25-macOS.zip" type="application/octet-stream" sparkle:edSignature="Ak876+Ka2WUQYVFdo4FGDyjcXB0pt1OGXzhvlht0vHXNdf5j6R2t/rKBAu1/IkeuMy6+gTRySpI3WTinVkEgDg==" length="17436204"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.24</title>
             <pubDate>Thu, 01 Oct 2026 14:22:44 GMT</pubDate>
             <sparkle:version>202610012222</sparkle:version>
