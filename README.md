@@ -139,11 +139,10 @@ cd macos && ./build.sh --install
 
 Driftflow builds on excellent open-source work:
 
-- [Handy](https://github.com/cjpais/Handy) by CJ Pais, the starting point of the earlier Windows app (MIT licence).
 - [NVIDIA Parakeet](https://huggingface.co/nvidia) speech models.
 - [FluidAudio](https://github.com/FluidInference/FluidAudio) for Parakeet on Apple's Neural Engine.
 - [Sparkle](https://sparkle-project.org) for updates.
 
 ## License
 
-Driftflow is free software, licensed under the [GNU General Public License v3.0](LICENSE). You're free to use, study, change and share it; copies you distribute, changed or not, must stay under the same licence and include their source code. The earlier Windows app (up to 0.2.22) included code from Handy under the MIT licence; it remains in this repository's history with its notice.
+Driftflow is free software, licensed under the [GNU General Public License v3.0](LICENSE). You're free to use, study, change and share it; copies you distribute, changed or not, must stay under the same licence and include their source code.

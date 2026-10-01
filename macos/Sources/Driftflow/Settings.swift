@@ -318,7 +318,9 @@ final class AppSettings: ObservableObject {
         }
         livePreview = LivePreviewSource(rawValue: defaults.string(forKey: "livePreview") ?? "") ?? .finalModel
         accuracyModel = AccuracyModel(rawValue: defaults.string(forKey: "accuracyModel") ?? "") ?? .parakeetUnified
-        soundStyle = SoundStyle(rawValue: defaults.string(forKey: "soundStyle") ?? "") ?? .bells
+        // "handyPop" was the earlier Pop set (Handy's sounds), now Driftflow's own.
+        let savedSound = defaults.string(forKey: "soundStyle") ?? ""
+        soundStyle = SoundStyle(rawValue: savedSound == "handyPop" ? "pop" : savedSound) ?? .bells
         historyRetention = HistoryRetention(rawValue: defaults.string(forKey: "historyRetention") ?? "") ?? .month
         micMode = MicMode(rawValue: defaults.string(forKey: "micMode") ?? "") ?? .onDemand
         hudPosition = HUDPosition(rawValue: defaults.string(forKey: "hudPosition") ?? "") ?? .bottom

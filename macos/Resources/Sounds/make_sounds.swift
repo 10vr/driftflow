@@ -1,4 +1,4 @@
-// Synthesizes Driftflow's own feedback sound sets (Classic uses macOS sounds; Pop is Handy's). Each set is a start/stop pair (plus one shared,
+// Synthesizes Driftflow's own feedback sound sets (Classic uses macOS sounds). Each set is a start/stop pair (plus one shared,
 // barely-there cancel tap). All are quiet, rounded and short: calm, not clicky.
 // Usage: swift make_sounds.swift <output dir>
 import AVFoundation
@@ -94,6 +94,16 @@ try write("minimal-start", render(length: 0.18, peak: 0.26) { s in
 })
 try write("minimal-stop", render(length: 0.18, peak: 0.24) { s in
     addNote(Note(frequency: 330, decay: 0.035, attack: 0.003, partials: pure), into: &s)
+})
+
+// 4. Pop: a bubble that pops upward to open; two quick, softer pops falling to close.
+let bubble: [(Double, Double, Double)] = [(1, 1, 1), (2, 0.12, 0.4)]
+try write("pop-start", render(length: 0.22, peak: 0.32) { s in
+    addNote(Note(frequency: 420, decay: 0.045, attack: 0.002, partials: bubble, glideTo: 1.9, glideTime: 0.035), into: &s)
+})
+try write("pop-stop", render(length: 0.26, peak: 0.30) { s in
+    addNote(Note(frequency: 620, gain: 0.85, decay: 0.035, attack: 0.002, partials: bubble, glideTo: 0.72, glideTime: 0.03), into: &s)
+    addNote(Note(frequency: 470, start: 0.075, gain: 0.7, decay: 0.045, attack: 0.002, partials: bubble, glideTo: 0.72, glideTime: 0.035), into: &s)
 })
 
 // Shared cancel: a single muted low tap, barely there.

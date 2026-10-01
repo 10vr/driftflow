@@ -16,7 +16,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/Driftflow" "$APP/Contents/MacOS/Driftflow"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-cp Resources/Sounds/*.caf Resources/Sounds/*.wav Resources/Sounds/THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+cp Resources/Sounds/*.caf "$APP/Contents/Resources/"
 mkdir -p "$APP/Contents/Frameworks"
 cp -R "$BIN_DIR/Sparkle.framework" "$APP/Contents/Frameworks/"
 

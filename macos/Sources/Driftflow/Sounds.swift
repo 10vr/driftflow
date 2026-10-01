@@ -1,7 +1,7 @@
 import AVFoundation
 
 enum SoundStyle: String, CaseIterable, Identifiable {
-    case classic, bells, glass, minimal, handyPop
+    case classic, bells, glass, minimal, pop
 
     var id: String { rawValue }
 
@@ -11,7 +11,7 @@ enum SoundStyle: String, CaseIterable, Identifiable {
         case .glass: "Glass"
         case .minimal: "Minimal"
         case .classic: "Classic"
-        case .handyPop: "Pop (Handy)"
+        case .pop: "Pop"
         }
     }
 
@@ -21,7 +21,7 @@ enum SoundStyle: String, CaseIterable, Identifiable {
         case .glass: "A single crystal tone with a soft shimmer"
         case .minimal: "The quietest: a short, low pulse"
         case .classic: "The original macOS Tink and Pop"
-        case .handyPop: "Handy's pop sounds (MIT licence)"
+        case .pop: "A bubble pops to open, two soft pops to close"
         }
     }
 }
@@ -31,12 +31,7 @@ enum SoundStyle: String, CaseIterable, Identifiable {
 @MainActor
 final class Sounds {
     /// File-name prefix for a style's start/stop files.
-    private static func prefix(_ style: SoundStyle) -> String {
-        switch style {
-        case .handyPop: "handy-pop"
-        default: style.rawValue
-        }
-    }
+    private static func prefix(_ style: SoundStyle) -> String { style.rawValue }
 
     enum Cue {
         case start
