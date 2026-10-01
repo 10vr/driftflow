@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.24</title>
+            <pubDate>Thu, 01 Oct 2026 14:22:44 GMT</pubDate>
+            <sparkle:version>202610012222</sparkle:version>
+            <sparkle:shortVersionString>0.2.24</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Driftflow and Driftline share one copy of each AI model: it&#x27;s downloaded once, and when both apps use it, it&#x27;s in memory once. If one app is downloading a model, the other shows the progress and waits.</p><p>Setup shows what the AI model does with real examples, Settings › AI Model has a Try it box to test any model on your own words, and while you edit by voice the pill suggests what to say.</p><p>Open Driftflow at the top of the menu bar menu opens your History, Stacks and Files.</p><p>The AI model uses about 140 MB less memory while it works.</p><p>Sharper keycaps and app icon in setup.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.24/Driftflow-0.2.24-macOS.zip" type="application/octet-stream" sparkle:edSignature="UDU9R6QHPFPECkb2LQ1kFrpEPfl/0Ej1OmO++HnhhJjliJp4kpyUN5xJ2R5ceRT7eyHkFcrH+g1go8ry2pOlAw==" length="17423647"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.23</title>
             <pubDate>Thu, 01 Oct 2026 12:17:51 GMT</pubDate>
             <sparkle:version>202610012017</sparkle:version>
