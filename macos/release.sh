@@ -1,9 +1,8 @@
 #!/bin/bash
-# Releases a Driftflow version for Mac and Windows together, on one GitHub release page
-# ("Driftflow 0.2.2", tag v0.2.2), and hands it to everyone's auto-updater.
+# Releases a Driftflow version on its GitHub release page ("Driftflow 0.2.2", tag v0.2.2) and hands
+# it to the Mac auto-updater. (The Windows app is being rebuilt; its build will hook onto the tag.)
 #
-#   ./release.sh 0.2.2 --notes "What changed"   tags v0.2.2 and pushes the tag, which makes GitHub
-#                                               build Windows and add its installer to the page;
+#   ./release.sh 0.2.2 --notes "What changed"   tags v0.2.2 and pushes the tag,
 #                                               then builds and signs the Mac app, adds the
 #                                               installer Driftflow-0.2.2-macOS.dmg and the update
 #                                               Driftflow-0.2.2-macOS.zip to the page and lists the
@@ -64,7 +63,7 @@ if [ "$LOCAL" = 0 ]; then
         fi
         git tag -a "$TAG" -m "${NOTES:-Driftflow $VERSION}"
         git push -q origin "$TAG"
-        echo "Pushed $TAG: GitHub is building Windows (about 20 minutes)."
+        echo "Pushed $TAG."
     fi
 fi
 
@@ -113,8 +112,7 @@ echo "Created $DMG"
 SIGNATURE="$("$SPARKLE_BIN/sign_update" --account driftflow "$ZIP")"
 URL="https://github.com/$REPO/releases/download/$TAG/$ZIP_NAME"
 
-# One release page per version, shared with the Windows installer (the Windows build may have
-# created it already; if both try at once, the loser uploads to the winner's page).
+# One release page per version (a Windows build may one day create it first; then this uploads to it).
 gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
     || gh release create "$TAG" -R "$REPO" --verify-tag --title "Driftflow $VERSION" \
         --notes "$(../scripts/release-notes.sh "$VERSION" "$NOTES")" \
@@ -153,8 +151,7 @@ PY
 
 git add "$FEED"
 git commit -q -m "Mac $VERSION: add to the update feed"
-# The Windows build may have pushed its feed update meanwhile.
 git pull -q --rebase origin main
 git push -q origin HEAD:main
 echo "Published the Mac download: https://github.com/$REPO/releases/tag/$TAG"
-echo "Macs running 0.2.16 or later see it within about 15 minutes (or at once via Check for Updates…); Windows follows when its build finishes."
+echo "Macs running 0.2.16 or later see it within about 15 minutes (or at once via Check for Updates…)."

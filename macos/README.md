@@ -143,10 +143,9 @@ Driftflow updates itself with [Sparkle](https://sparkle-project.org): once a day
 [`updates/macos/appcast.xml`](../updates/macos/appcast.xml), downloads a newer version quietly and installs it when
 the app quits. Settings › General › Updates turns this off; the menu has **Check for Updates…**.
 
-- `./release.sh 0.2.2 --notes "What changed"` releases **both apps** on one GitHub release page, "Driftflow 0.2.2":
-  it tags `v0.2.2` and pushes the tag (GitHub then builds the Windows installer and adds it to the page, about
-  20 minutes), builds and signs the Mac app, adds `Driftflow-0.2.2-macOS.zip` to the page and lists it in the Mac
-  update feed. Needs the `gh` CLI signed in to GitHub, and everything committed and pushed.
+- `./release.sh 0.2.2 --notes "What changed"` publishes the GitHub release page "Driftflow 0.2.2": it tags
+  `v0.2.2` and pushes the tag, builds and signs the Mac app, adds `Driftflow-0.2.2-macOS.dmg` and `.zip` to the
+  page and lists the zip in the Mac update feed. Needs the `gh` CLI signed in to GitHub, and everything committed and pushed.
 - `./release.sh 0.2.2 --local` only makes `dist/Driftflow-0.2.2-macOS.zip`.
 
 **Signing.** Without a Developer ID the app is signed with the free, self-made "Driftflow Dev" certificate
