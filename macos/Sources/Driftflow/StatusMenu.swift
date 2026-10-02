@@ -44,21 +44,22 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         ])
     }
 
-    /// The waveform, filled while listening, with a blue dot while an update waits to be installed.
+    /// The app icon's bars, in a filled tile while listening, with a blue dot while an update waits
+    /// to be installed.
     func refreshIcon() {
         defer { showStackCount() }
         let listening = controller.phase != .idle
-        let symbol = NSImage(systemSymbolName: listening ? "waveform.circle.fill" : "waveform", accessibilityDescription: "Driftflow")
-        guard Updater.shared.readyVersion != nil, !listening, let symbol else {
-            symbol?.isTemplate = true
+        let symbol = MenuBarGlyph.image(filled: listening)
+        symbol.accessibilityDescription = "Driftflow"
+        guard Updater.shared.readyVersion != nil, !listening else {
             item?.button?.image = symbol
             item?.button?.toolTip = nil
             return
         }
         // Drawn when shown, so the waveform takes the menu bar's own colour (light or dark).
-        let size = NSSize(width: 18, height: 16)
+        let size = NSSize(width: 20, height: 18)
         let badged = NSImage(size: size, flipped: false) { rect in
-            let glyph = NSRect(x: 0, y: (rect.height - 14) / 2, width: 15, height: 14)
+            let glyph = NSRect(x: 0, y: 0, width: 18, height: 18)
             let tinted = NSImage(size: glyph.size, flipped: false) { inner in
                 symbol.draw(in: inner)
                 NSColor.labelColor.set()
@@ -287,5 +288,48 @@ final class MenuAction: NSObject {
 
     @objc func run() {
         onMainThread { action() }
+    }
+}
+
+/// The app icon's five slanted bars (Resources/Icon/render_icon.swift) as a one-colour menu bar
+/// image, which macOS tints to suit a light or dark menu bar.
+enum MenuBarGlyph {
+    /// `filled`: the bars cut out of a rounded tile, like the app icon (while you dictate).
+    static func image(filled: Bool) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            NSColor.black.set()
+            if filled {
+                NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 4.5, yRadius: 4.5).fill()
+                NSGraphicsContext.current?.compositingOperation = .destinationOut
+                bars(in: rect.insetBy(dx: 2.5, dy: 2.5)).fill()
+            } else {
+                bars(in: rect.insetBy(dx: 0.5, dy: 1.5)).fill()
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    /// The icon's bars, tallest in the middle and leaning forward, fitted into `box`.
+    static func bars(in box: NSRect) -> NSBezierPath {
+        let heights: [CGFloat] = [250, 430, 560, 380, 220]
+        // The icon's bars are 78 wide with 40 between them; at 16 points they're drawn a little bolder
+        // (as small icons are), or they'd blur into the gaps on a non-Retina screen.
+        let barWidth: CGFloat = 92, gap: CGFloat = 30, lean: CGFloat = 0.16
+        let path = NSBezierPath()
+        for (index, height) in heights.enumerated() {
+            let bar = NSBezierPath(roundedRect: NSRect(x: CGFloat(index) * (barWidth + gap), y: -height / 2, width: barWidth, height: height),
+                                   xRadius: barWidth / 2, yRadius: barWidth / 2)
+            bar.transform(using: AffineTransform(m11: 1, m12: 0, m21: lean, m22: 1, tX: 0, tY: 0))
+            path.append(bar)
+        }
+        let bounds = path.bounds
+        let scale = min(box.width / bounds.width, box.height / bounds.height)
+        var fit = AffineTransform(translationByX: -bounds.midX, byY: -bounds.midY)
+        fit.append(AffineTransform(scaleByX: scale, byY: scale))
+        fit.append(AffineTransform(translationByX: box.midX, byY: box.midY))
+        path.transform(using: fit)
+        return path
     }
 }
