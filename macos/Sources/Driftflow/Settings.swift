@@ -324,6 +324,12 @@ final class AppSettings: ObservableObject {
         // "handyPop" was the earlier Pop set (Handy's sounds), now Driftflow's own.
         let savedSound = defaults.string(forKey: "soundStyle") ?? ""
         soundStyle = SoundStyle(rawValue: savedSound == "handyPop" ? "pop" : savedSound) ?? .minimal
+        // 0.2.26 moved everyone to Minimal once, whatever they had; from then on, a sound you pick stays.
+        if !defaults.bool(forKey: "soundMovedToMinimal") {
+            defaults.set(true, forKey: "soundMovedToMinimal")
+            soundStyle = .minimal
+            defaults.set(SoundStyle.minimal.rawValue, forKey: "soundStyle")
+        }
         historyRetention = HistoryRetention(rawValue: defaults.string(forKey: "historyRetention") ?? "") ?? .month
         micMode = MicMode(rawValue: defaults.string(forKey: "micMode") ?? "") ?? .onDemand
         hudPosition = HUDPosition(rawValue: defaults.string(forKey: "hudPosition") ?? "") ?? .bottom

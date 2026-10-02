@@ -18,6 +18,10 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # The build time as the build number, like a release: the updater then never offers an older
 # release over this build (and installs it when you quit), but still offers newer ones.
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d%H%M)" "$APP/Contents/Info.plist"
+# And the latest release's version number, so a build doesn't call itself an old version (release.sh
+# then sets the new one).
+LATEST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+[ -n "$LATEST_TAG" ] && /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${LATEST_TAG#v}" "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp Resources/Sounds/*.caf "$APP/Contents/Resources/"
 cp -R Resources/Licenses "$APP/Contents/Resources/" # third-party licences (llama.cpp)
