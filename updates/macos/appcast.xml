@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.26</title>
+            <pubDate>Wed, 14 Oct 2026 14:30:29 GMT</pubDate>
+            <sparkle:version>202610142229</sparkle:version>
+            <sparkle:shortVersionString>0.2.26</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Bluetooth earphones go back to full sound quality as soon as a dictation ends, instead of staying in call mode until you quit Driftflow.</p><p>Minimal is now the default sound. This update switches everyone to it once; if you pick another sound afterwards, it stays.</p><p>The menu bar icon now matches the app icon, and fills in while you dictate.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.26/Driftflow-0.2.26-macOS.zip" type="application/octet-stream" sparkle:edSignature="QqI1YrjN1HJ78/yi+25EFPC02pC3q2wmVfQ4Rr3IwDilGV8CV4cC/pgad4vlNzLpVyzLnt2LJd7sud1XyfCqCA==" length="17438842"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.25</title>
             <pubDate>Thu, 01 Oct 2026 15:33:43 GMT</pubDate>
             <sparkle:version>202610012333</sparkle:version>
