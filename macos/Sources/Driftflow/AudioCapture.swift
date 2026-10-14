@@ -133,6 +133,7 @@ final class AudioCapture: @unchecked Sendable {
         } catch {
             AppLog.error("The microphone didn't start: \(error.localizedDescription)")
             input.removeTap(onBus: 0)
+            releaseEngine()
             throw error
         }
         running = true
@@ -188,6 +189,19 @@ final class AudioCapture: @unchecked Sendable {
             $0.preroll.removeAll()
             $0.prerollFrames = 0
         }
+        releaseEngine()
+    }
+
+    /// Lets go of the engine entirely. A stopped engine still has its input set up on the system's
+    /// default microphone, and that's enough to keep Bluetooth earphones in their low-quality call
+    /// mode (and to make the engine follow every device change) while you aren't dictating. A fresh
+    /// engine touches no microphone until the next dictation starts it.
+    private func releaseEngine() {
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        configObserver = nil
+        engine = AVAudioEngine()
+        forcedDevice = nil
+        observeConfiguration()
     }
 
     /// Routes audio to `pipe`, starting with the pre-roll captured before this call. Waits until
@@ -260,7 +274,10 @@ final class AudioCapture: @unchecked Sendable {
             engine.stop()
             running = false
         }
-        guard listening, wanted else { return }
+        guard listening, wanted else {
+            if listening { releaseEngine() } // stopped for good: don't keep the microphone set up
+            return
+        }
         // Devices can send changes in bursts while they switch: restart right away the first
         // times, then wait for a burst to settle instead of restarting into every step of it.
         let now = DispatchTime.now().uptimeNanoseconds
