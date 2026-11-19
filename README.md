@@ -31,7 +31,7 @@
 
 - **Works in every app.** Mail, Slack, your code editor, a browser form: if it takes text, Driftflow can type into it.
 - **Fast.** Text appears as you speak, and the final text is inserted in about 60 ms after you let go (measured on Mac).
-- **Accurate.** Driftflow uses NVIDIA's Parakeet speech models. On Mac, Parakeet Unified gets 2.55% of words wrong on the LibriSpeech benchmark, against 3.30% for Apple's own speech model.
+- **Accurate.** Driftflow uses NVIDIA's Parakeet speech models. On Mac the default, Parakeet Ultra, keeps the quiet, fast and mumbled words other models drop, and gets 2.98% of words wrong on the LibriSpeech benchmark, against 3.30% for Apple's own speech model.
 - **Private by design.** Speech is transcribed on your own computer. No accounts, no analytics, no cloud processing.
 - **Hold or tap.** Hold the key while you speak, or tap it once to keep listening hands-free until you tap again. Esc cancels.
 - **A live preview.** A small floating pill shows a waveform and your words as they're recognised.
@@ -106,7 +106,7 @@ Measured on a Mac with an M5 chip, running macOS 26.6:
 |---|---|
 | First words on screen | 0.38–0.55 s after you start speaking |
 | Text inserted after you let go | about 60 ms (short dictation), about 150 ms (90-second dictation) |
-| Word error rate | 2.55% on 300 LibriSpeech recordings (5,603 words) |
+| Word error rate | 2.98% on 300 LibriSpeech recordings (5,603 words); 2.55% with Parakeet Unified |
 
 Long dictations are transcribed in segments while you speak, so finishing a long one is nearly as quick as a short one. Details and model comparisons are in [`macos/README.md`](macos/README.md).
 
@@ -114,7 +114,8 @@ Long dictations are transcribed in segments while you speak, so finishing a long
 
 | Model | Languages |
 |---|---|
-| **Parakeet Unified 0.6B** (default) | English |
+| **Parakeet Ultra** (default) | English and 24 European languages |
+| Parakeet Unified 0.6B | English |
 | Parakeet TDT v3 | English and 24 European languages |
 | Parakeet TDT v2 | English |
 | Apple Speech | 50+ languages |

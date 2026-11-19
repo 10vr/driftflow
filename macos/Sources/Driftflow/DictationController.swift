@@ -66,12 +66,12 @@ final class DictationController: ObservableObject {
     /// False on macOS 15: no Apple speech model, so dictation needs a downloaded Parakeet model.
     var hasAppleSpeech: Bool { appleEngineStorage != nil }
 
-    /// macOS 15: the chosen language decides the model (Unified for English, TDT v3 for the rest),
-    /// since there's no Apple model to cover languages Parakeet Unified doesn't speak.
+    /// macOS 15: there's no Apple model to cover a language the chosen model doesn't speak, so a
+    /// language it lacks (English-only Unified or v2, say, with French) moves it to Parakeet Ultra.
     func matchModelToLanguage() {
-        guard !hasAppleSpeech else { return }
-        let wanted: AccuracyModel = settings.language == "en" ? (settings.accuracyModel == .parakeetV2 ? .parakeetV2 : .parakeetUnified) : .parakeetV3
-        if settings.accuracyModel != wanted, wanted.supports(language: settings.language) { settings.accuracyModel = wanted }
+        guard !hasAppleSpeech, !settings.accuracyModel.supports(language: settings.language),
+              AccuracyModel.parakeetUltra.supports(language: settings.language) else { return }
+        settings.accuracyModel = .parakeetUltra
     }
     private let pauseDetector = PauseDetector()
     let parakeet = ParakeetEngine()
@@ -258,6 +258,7 @@ final class DictationController: ObservableObject {
         } else {
             showWhatsNewOnce()
         }
+        upgradeToUltraOnce()
         NotificationCenter.default.publisher(for: TextModelManager.downloaded)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] note in
@@ -277,7 +278,7 @@ final class DictationController: ObservableObject {
             if !AccuracyModel.allCases.contains(where: { $0 != .apple && $0.supports(language: settings.language) }) {
                 settings.language = "en"
             }
-            if settings.accuracyModel == .apple { settings.accuracyModel = .parakeetUnified }
+            if settings.accuracyModel == .apple { settings.accuracyModel = .parakeetUltra }
             matchModelToLanguage()
         }
     }
@@ -308,6 +309,54 @@ final class DictationController: ObservableObject {
         }
     }
 
+    private static let ultraUpgradeKey = "upgradedToParakeetUltra"
+
+    /// 0.2.28 made Parakeet Ultra the default speech model. People on the old default (Unified) or
+    /// on TDT v3, which Ultra was trained from, move to it once: it downloads in the background while
+    /// their model keeps working, then takes over between dictations. Anyone who picked TDT v2 or
+    /// Apple Speech keeps it. A failed download tries again at the next launch.
+    private func upgradeToUltraOnce() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.ultraUpgradeKey) else { return }
+        let upgradable: Set<AccuracyModel> = [.parakeetUnified, .parakeetV3]
+        guard upgradable.contains(settings.accuracyModel) else {
+            defaults.set(true, forKey: Self.ultraUpgradeKey)
+            return
+        }
+        // Dictating in a language Ultra doesn't speak (Malay, say: Apple writes it), the download would
+        // be for nothing. Look again at the next launch, in case the language changed.
+        guard AccuracyModel.parakeetUltra.supports(language: settings.language) else { return }
+        Task {
+            let models = ModelManager.shared
+            if !models.isDownloaded(.parakeetUltra) {
+                try? await Task.sleep(for: .seconds(10)) // let launch, and the current model, settle first
+                AppLog.info("Downloading Parakeet Ultra to replace \(settings.accuracyModel.rawValue)")
+                models.download(.parakeetUltra)
+                while case .downloading = models.status(of: .parakeetUltra) {
+                    try? await Task.sleep(for: .seconds(2))
+                }
+                guard models.isDownloaded(.parakeetUltra) else {
+                    AppLog.error("Parakeet Ultra download didn't finish; trying again next launch")
+                    return
+                }
+            }
+            // The first load fits the model to this Mac's Neural Engine, which can take a while: do it
+            // now, beside the current model, so the switch itself takes a second.
+            await models.warmUp(.parakeetUltra)
+            guard upgradable.contains(settings.accuracyModel) else { // they picked a model meanwhile
+                defaults.set(true, forKey: Self.ultraUpgradeKey)
+                return
+            }
+            while phase != .idle { try? await Task.sleep(for: .seconds(1)) }
+            defaults.set(true, forKey: Self.ultraUpgradeKey)
+            settings.accuracyModel = .parakeetUltra
+            AppLog.info("Switched to Parakeet Ultra")
+            showToast(HUDToast(icon: "sparkles",
+                               text: "Speech recognition upgraded: Parakeet Ultra catches more of what you say, even quiet or fast speech. Switch back any time in Settings › Models."),
+                      for: 8)
+        }
+    }
+
     private func applyVocabulary() {
         let terms = settings.vocabularyTerms
         vocabularyStatus = terms.isEmpty ? "" : "Getting ready…"
@@ -324,11 +373,11 @@ final class DictationController: ObservableObject {
         if let error = await parakeet.vocabularyError {
             vocabularyStatus = "Couldn't prepare word spotting: \(error)"
         } else if await parakeet.boostingActive {
-            vocabularyStatus = "\(count) active in Parakeet Unified and Apple Speech"
-        } else if settings.accuracyModel == .parakeetUnified {
+            vocabularyStatus = "\(count) active in \(settings.accuracyModel.displayName) and Apple Speech"
+        } else if settings.accuracyModel.correctsVocabulary {
             vocabularyStatus = "Getting ready…"
         } else {
-            vocabularyStatus = "\(count) active in Apple Speech. \(settings.accuracyModel.displayName) fixes spelling only; switch to Parakeet Unified to recognize them by sound."
+            vocabularyStatus = "\(count) active in Apple Speech. \(settings.accuracyModel.displayName) fixes spelling only; switch to Parakeet Ultra to recognize them by sound."
         }
     }
 

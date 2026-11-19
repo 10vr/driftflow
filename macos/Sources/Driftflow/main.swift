@@ -19,7 +19,7 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
     }
     dispatchMain()
 } else if let index = arguments.firstIndex(of: "--file"), index + 1 < arguments.count {
-    // `Driftflow --file <audio or video> [--format text|timestamped|srt|vtt] [--apple] [--v2]`: the
+    // `Driftflow --file <audio or video> [--format text|timestamped|srt|vtt] [--apple] [--v2] [--ultra]`: the
     // "Transcribe Files" pipeline headlessly; prints the transcript, with timing on stderr.
     let url = URL(fileURLWithPath: arguments[index + 1])
     let format = arguments.firstIndex(of: "--format").flatMap { $0 + 1 < arguments.count ? FileTranscript.Format(rawValue: arguments[$0 + 1]) : nil } ?? .text
@@ -31,7 +31,7 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
                 engine = .apple(SpeechConfig(language: "en", accent: "US", model: .automatic, vocabulary: []))
             } else {
                 let parakeet = ParakeetEngine()
-                let model: AccuracyModel = arguments.contains("--v2") ? .parakeetV2 : .parakeetUnified
+                let model: AccuracyModel = arguments.contains("--v2") ? .parakeetV2 : arguments.contains("--ultra") ? .parakeetUltra : .parakeetUnified
                 if let index = arguments.firstIndex(of: "--vocab"), index + 1 < arguments.count {
                     await parakeet.setVocabulary(arguments[index + 1].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
                 }
@@ -460,7 +460,10 @@ if let index = arguments.firstIndex(of: "--transcribe"), index + 1 < arguments.c
             try await parakeet.load(.parakeetUnified) { _ in }
         }
         print("   boosting:", await parakeet.boostingActive)
+        _ = await step("switch to Ultra, vocabulary kept") { try await parakeet.load(.parakeetUltra) { _ in } }
+        print("   boosting:", await parakeet.boostingActive, "(expected true)")
         _ = await step("switch to TDT v2") { try await parakeet.load(.parakeetV2) { _ in } }
+        print("   boosting:", await parakeet.boostingActive, "(expected false: v2 isn't corrected)")
         _ = await step("clear vocabulary") { await parakeet.setVocabulary([]) }
         _ = await step("back to Unified (used to hang)") { try await parakeet.load(.parakeetUnified) { _ in } }
         print("   model:", String(describing: await parakeet.model), "ready:", await parakeet.isReady)

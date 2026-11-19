@@ -45,10 +45,10 @@ final class FileTranscriber: ObservableObject {
 
     /// How many copies to add. Measured on a 34-minute file (M-series, 10 cores): without
     /// Vocabulary, 4 copies in all is fastest (2.8× one; more add nothing, the Neural Engine is
-    /// full). With Vocabulary on Parakeet Unified, its word check runs on the CPU and keeps
+    /// full). With Vocabulary on Parakeet Unified (or Ultra), its word check runs on the CPU and keeps
     /// scaling: 6 copies are 4.2× one. Each copy adds about 50 MB. Fewer on Macs with fewer cores.
     private static func helperCount(for model: AccuracyModel, vocabulary: [String]) -> Int {
-        let wanted = model == .parakeetUnified && !vocabulary.isEmpty ? 5 : 3
+        let wanted = model.correctsVocabulary && !vocabulary.isEmpty ? 5 : 3
         return max(0, min(wanted, ProcessInfo.processInfo.activeProcessorCount - 3))
     }
 
@@ -378,6 +378,11 @@ final class FilesWindow {
         try? await Task.sleep(for: .seconds(1))
         Self.capture(rows, to: directory.appendingPathComponent("settings-ai-model.png"))
         rows.close()
+        let speech = SpeechModelSnapshot.window()
+        speech.orderFront(nil)
+        try? await Task.sleep(for: .seconds(1))
+        Self.capture(speech, to: directory.appendingPathComponent("settings-models.png"))
+        speech.close()
     }
 
     func snapshot(to directory: URL) async {

@@ -248,7 +248,7 @@ final class AppSettings: ObservableObject {
             "micMode": MicMode.onDemand.rawValue,
             "historyRetention": HistoryRetention.month.rawValue,
             "soundStyle": SoundStyle.minimal.rawValue, // the default sound (Soft Bells before 0.2.26)
-            "accuracyModel": AccuracyModel.parakeetUnified.rawValue,
+            "accuracyModel": AccuracyModel.parakeetUltra.rawValue, // Parakeet Unified before 0.2.28
             "livePreview": LivePreviewSource.finalModel.rawValue,
             "hudPosition": HUDPosition.bottom.rawValue,
             "replacements": "",
@@ -313,6 +313,13 @@ final class AppSettings: ObservableObject {
         smartSpacing = defaults.bool(forKey: "smartSpacing")
         removeFillers = defaults.bool(forKey: "removeFillers")
         spokenCommands = defaults.bool(forKey: "spokenCommands")
+        // 0.2.28 made Parakeet Ultra the default. A copy set up earlier that never picked a model was
+        // on Unified: keep it there for now, so it isn't left without a model while Ultra downloads.
+        // DictationController moves it to Ultra in the background once the download is done.
+        if defaults.bool(forKey: "livePreviewParakeetDefault"),
+           defaults.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "")?["accuracyModel"] == nil {
+            defaults.set(AccuracyModel.parakeetUnified.rawValue, forKey: "accuracyModel")
+        }
         // The preview now comes from the same NVIDIA model as the final text by default: switch
         // copies that kept the old Apple Speech default over once.
         if !defaults.bool(forKey: "livePreviewParakeetDefault") {
@@ -320,7 +327,7 @@ final class AppSettings: ObservableObject {
             defaults.set(LivePreviewSource.finalModel.rawValue, forKey: "livePreview")
         }
         livePreview = LivePreviewSource(rawValue: defaults.string(forKey: "livePreview") ?? "") ?? .finalModel
-        accuracyModel = AccuracyModel(rawValue: defaults.string(forKey: "accuracyModel") ?? "") ?? .parakeetUnified
+        accuracyModel = AccuracyModel(rawValue: defaults.string(forKey: "accuracyModel") ?? "") ?? .parakeetUltra
         // "handyPop" was the earlier Pop set (Handy's sounds), now Driftflow's own.
         let savedSound = defaults.string(forKey: "soundStyle") ?? ""
         soundStyle = SoundStyle(rawValue: savedSound == "handyPop" ? "pop" : savedSound) ?? .minimal

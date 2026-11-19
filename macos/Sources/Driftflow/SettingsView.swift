@@ -474,6 +474,28 @@ private struct RoleTile: View {
     }
 }
 
+/// The speech model rows outside a Form, for `--snapshot` (Forms can't be captured off screen).
+@MainActor
+enum SpeechModelSnapshot {
+    static func window() -> NSWindow {
+        let rows = VStack(alignment: .leading, spacing: 0) {
+            ForEach(AccuracyModel.allCases) { model in
+                ModelRow(model: model, selected: model == .parakeetUltra, status: ModelManager.shared.status(of: model),
+                         loaded: model == .parakeetUltra, select: {}, download: {}, cancel: {}, delete: {})
+                    .padding(.horizontal, 16)
+                Divider()
+            }
+        }
+        .frame(width: 620)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .windowBackgroundColor))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = NSHostingView(rootView: rows)
+        window.setContentSize(window.contentView!.fittingSize)
+        return window
+    }
+}
+
 private struct ModelRow: View {
     let model: AccuracyModel
     let selected: Bool
@@ -506,7 +528,7 @@ private struct ModelRow: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 12) {
-                    Stat(icon: "target", text: String(format: "%.1f%% accurate", model.accuracy))
+                    Stat(icon: "target", text: String(format: "%.1f%% on read speech", model.accuracy))
                     Stat(icon: "bolt.fill", text: "\(model.medianMilliseconds) ms to text")
                     Stat(icon: "globe", text: model.languagesLabel)
                     Stat(icon: "internaldrive", text: model.downloadSize)
@@ -569,6 +591,7 @@ private struct ModelRow: View {
 
     private var badgeColor: Color {
         switch model {
+        case .parakeetUltra: .pink
         case .parakeetUnified: .green
         case .parakeetV2: .orange
         case .parakeetV3: .blue

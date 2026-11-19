@@ -11,7 +11,7 @@ Driftflow for Mac is a native Swift app for Apple Silicon. Speech is transcribed
 | First live text on screen | **0.38–0.55 s** after you start speaking |
 | Key release → text inserted (short dictation) | **~60 ms** |
 | Key release → text inserted (90 s dictation) | **~150 ms**; long dictations are transcribed while you talk |
-| Accuracy (300 LibriSpeech clips, 5,603 words) | **2.55% word error rate** |
+| Accuracy (300 LibriSpeech clips, 5,603 words) | **2.98% word error rate** (Parakeet Unified: 2.55%) |
 | Clipping of the first word | None when the mic is warm (0.5 s pre-roll) |
 
 ### Model benchmark
@@ -20,13 +20,15 @@ Tested on 300 real LibriSpeech recordings (half clean, half noisy), with numbers
 
 | Model | WER | 95% CI | Noisy WER | Median per clip | Verdict |
 |---|---|---|---|---|---|
-| **Parakeet Unified 0.6B** (default) | **2.55%** | 2.09–3.08 | **2.84%** | 51 ms | Most accurate |
-| Driftflow full pipeline | **2.55%** | 2.09–3.08 | 2.84% | 49 ms | Post-processing adds 0 errors |
+| Parakeet Unified 0.6B | **2.55%** | 2.09–3.08 | **2.84%** | 51 ms | Most accurate on read speech; drops quiet words |
+| Driftflow full pipeline (Unified) | **2.55%** | 2.09–3.08 | 2.84% | 49 ms | Post-processing adds 0 errors |
 | Parakeet TDT v2 | 2.89% | 2.33–3.50 | 3.13% | 47 ms | Fastest by a hair (option) |
 | Parakeet TDT v3 | 2.96% | 2.44–3.52 | 3.49% | 46 ms | Multilingual; weaker English |
-| Parakeet Ultra | 2.98% | 2.47–3.55 | 3.46% | 47 ms | |
+| **Parakeet Ultra** (default) | 2.98% | 2.47–3.55 | 3.46% | 47 ms | Best on everyday speech (below) |
 | Apple SpeechTranscriber | 3.30% | 2.75–3.91 | 4.36% | 98 ms | Fallback, other languages, optional live preview |
 | Nemotron Streaming 0.6B | 3.86% | 3.22–4.59 | 5.11% | 92 ms | Slowest first text (1.3 s) |
+
+LibriSpeech is audiobooks read aloud. On everyday speech (121 clips of 5–30 s from real calls, meetings and voice notes, Nov 2026, compared by hand as there's no reference text) Parakeet Unified left out a quarter or more of what was said in 9 clips (one came back empty), while Ultra kept all of it. That's why Ultra is the default since 0.2.28.
 
 ## How Driftflow stays fast
 
@@ -64,7 +66,7 @@ The first launch opens a setup window for Microphone and Accessibility access, t
 - **Tap Right ⌘** (under 0.3 s): hands-free mode; tap again to finish. **Esc** cancels.
 - **Right ⌘ + C, V, a click, etc.:** recognized as a shortcut and cancelled silently. The sound and overlay wait 150 ms, so shortcuts never flash them.
 - **Right ⌘ + ⌃ (held before or while you speak):** that dictation goes into the stack instead of being pasted (see [The Stack](#the-stack)). The key is set in Settings › Shortcuts: ⌃, ⌥, ⇧, ⌘ (not with Right ⌘) or off; either side's key counts, only while the dictation key is held.
-- **Models** (Settings › Models): choose the final-text model (Parakeet Unified, TDT v2, TDT v3 or Apple Speech). Each card shows measured errors and speed, plus Download, Use and Delete. The live preview comes from the same model by default (Settings › Models › Advanced can switch it to Apple Speech, lighter on battery).
+- **Models** (Settings › Models): choose the final-text model (Parakeet Ultra, Unified, TDT v2, TDT v3 or Apple Speech). Each card shows measured errors and speed, plus Download, Use and Delete. The live preview comes from the same model by default (Settings › Models › Advanced can switch it to Apple Speech, lighter on battery).
 - **Menu bar:** recent dictations (click to copy) and the latency of the last dictation.
 - **Settings:**
   - trigger key: Right ⌥, Right ⌘, Fn, ⌥Space or ⌃⌥Space

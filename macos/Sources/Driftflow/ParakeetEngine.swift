@@ -22,12 +22,12 @@ actor ParakeetEngine {
     let gate = SpeechGate()
     private var vocabulary: [String] = []
     private var ctcModels: CtcModels?
-    /// Vocabulary correction for Unified. Run by this engine rather than configured on the model,
+    /// Vocabulary correction for Ultra and Unified. Run by this engine rather than configured on the model,
     /// so it can be skipped when a transcript has nothing it could correct (see `VocabularyGate`).
     private var boosting: VocabularyBoostingSession?
     private var boostingTerms: [String] = []
     private var vocabularyGate: VocabularyGate?
-    /// True once Unified is correcting against `vocabulary`.
+    /// True once the model is correcting against `vocabulary`.
     var boostingActive: Bool { boosting != nil }
     private(set) var vocabularyError: String?
     private var backend: Backend?
@@ -69,9 +69,13 @@ actor ParakeetEngine {
                 let manager = UnifiedAsrManager()
                 try await manager.loadModels(progressHandler: progress)
                 self.install(.unified(manager), model: model)
-            case .parakeetV2, .parakeetV3:
-                let models = try await AsrModels.downloadAndLoad(version: model == .parakeetV2 ? .v2 : .v3,
-                                                                 progressHandler: progress)
+            case .parakeetV2, .parakeetV3, .parakeetUltra:
+                let version: AsrModelVersion = switch model {
+                case .parakeetV2: .v2
+                case .parakeetUltra: .ultra
+                default: .v3
+                }
+                let models = try await AsrModels.downloadAndLoad(version: version, progressHandler: progress)
                 let manager = AsrManager()
                 try await manager.loadModels(models)
                 self.install(.tdt(manager, decoderLayers: await manager.decoderLayerCount), model: model)
@@ -97,7 +101,7 @@ actor ParakeetEngine {
         }
     }
 
-    /// The user's words and names. On Parakeet Unified a small companion model (Parakeet CTC
+    /// The user's words and names. On Parakeet Ultra and Unified a small companion model (Parakeet CTC
     /// 110M, ~98 MB, downloaded on first use) listens for them in the audio and corrects the
     /// transcript only where the sound matches, e.g. "drift flow" → "Driftflow".
     func setVocabulary(_ terms: [String]) async {
@@ -109,7 +113,7 @@ actor ParakeetEngine {
     /// Calls can overlap (the actor is re-entered at each await), so each one checks after every
     /// await that its word list is still current, and a newer call wins.
     private func applyVocabulary() async {
-        guard case .unified = backend else { return } // TDT models aren't corrected
+        guard backend != nil, loadedModel?.correctsVocabulary == true else { return } // v2 and v3 aren't corrected
         let terms = vocabulary
         if terms.isEmpty {
             boosting = nil
@@ -139,9 +143,14 @@ actor ParakeetEngine {
         self.backend = backend
         loadedModel = model
         state = .ready
+        if !model.correctsVocabulary { // a session set up for the previous model would report itself active
+            boosting = nil
+            boostingTerms = []
+            vocabularyGate = nil
+        }
     }
 
-    /// Unified's words with your Vocabulary applied. The correction (a second model listening for
+    /// The model's words with your Vocabulary applied. The correction (a second model listening for
     /// your terms, then rescoring) took 100–500 ms on every dictation, so it runs only when some
     /// words in the transcript resemble a term; otherwise nothing could change and it's skipped.
     private func correctedWords(text: String, timings: [TokenTiming], audio: [Float]) async -> [WordTiming] {
@@ -170,7 +179,8 @@ actor ParakeetEngine {
             // Trailing silence works around TDT dropping the final words of >15 s inputs.
             let padded = samples + [Float](repeating: 0, count: max(6_400, 16_000 - samples.count))
             var decoderState = TdtDecoderState.make(decoderLayers: layers)
-            text = try await manager.transcribe(padded, decoderState: &decoderState).text
+            let result = try await manager.transcribe(padded, decoderState: &decoderState)
+            text = await corrected(result.text, timings: result.tokenTimings, audio: padded, correct: correct)
         case .unified(let manager):
             let padded = samples.count < 16_000 ? samples + [Float](repeating: 0, count: 16_000 - samples.count) : samples
             if boosting != nil, correct {
@@ -187,6 +197,15 @@ actor ParakeetEngine {
         return NumberStyle.apply(text)
     }
 
+    /// TDT (Ultra) text with your Vocabulary applied. The model's own text is kept unless a term was
+    /// actually swapped in, since rebuilding it from word timings can space punctuation differently.
+    private func corrected(_ text: String, timings: [TokenTiming]?, audio: [Float], correct: Bool) async -> String {
+        guard boosting != nil, correct, let timings, !timings.isEmpty else { return text }
+        let raw = buildWordTimings(from: timings).map(\.word)
+        let words = await correctedWords(text: text, timings: timings, audio: audio).map(\.word)
+        return words == raw ? text : words.joined(separator: " ")
+    }
+
     /// The loaded model, for labelling file transcripts.
     var model: AccuracyModel? { backend == nil ? nil : loadedModel }
 
@@ -201,7 +220,8 @@ actor ParakeetEngine {
             let padded = samples + [Float](repeating: 0, count: max(6_400, 16_000 - samples.count))
             var decoderState = TdtDecoderState.make(decoderLayers: layers)
             let result = try await manager.transcribe(padded, decoderState: &decoderState)
-            return buildWordTimings(from: result.tokenTimings ?? [])
+            guard boosting != nil, let timings = result.tokenTimings else { return buildWordTimings(from: result.tokenTimings ?? []) }
+            return await correctedWords(text: result.text, timings: timings, audio: padded)
         case .unified(let manager):
             let padded = samples.count < 16_000 ? samples + [Float](repeating: 0, count: 16_000 - samples.count) : samples
             let result = try await manager.transcribeWithTimings(padded)
@@ -220,7 +240,7 @@ enum VocabularyMerge {
     static func merge(raw: [WordTiming], boosted: String) -> [WordTiming] {
         let new = boosted.split(separator: " ").map(String.init)
         let a = raw.map { key($0.word) }, b = new.map(key)
-        guard a != b else { return raw.enumerated().map { WordTiming(word: new[$0.offset], startTime: $0.element.startTime, endTime: $0.element.endTime) } }
+        guard a != b else { return raw.enumerated().map { WordTiming(word: keepMark(of: $0.element.word, on: new[$0.offset]), startTime: $0.element.startTime, endTime: $0.element.endTime) } }
         // Longest common subsequence over normalized words.
         var table = [[Int]](repeating: [Int](repeating: 0, count: b.count + 1), count: a.count + 1)
         for i in stride(from: a.count - 1, through: 0, by: -1) {
@@ -247,6 +267,7 @@ enum VocabularyMerge {
                 words = rawWords
             } else if !words.isEmpty {
                 words = Array(leading) + words + Array(trailing)
+                if let last = rawWords.last { words[words.count - 1] = keepMark(of: last, on: words[words.count - 1]) }
             } else {
                 words = rawWords
             }
@@ -260,7 +281,7 @@ enum VocabularyMerge {
         while i < a.count, j < b.count {
             if a[i] == b[j] {
                 flush(rawStart..<i, newStart..<j)
-                result.append(WordTiming(word: new[j], startTime: raw[i].startTime, endTime: raw[i].endTime))
+                result.append(WordTiming(word: keepMark(of: raw[i].word, on: new[j]), startTime: raw[i].startTime, endTime: raw[i].endTime))
                 i += 1; j += 1
                 rawStart = i; newStart = j
             } else if table[i + 1][j] >= table[i][j + 1] {
@@ -274,6 +295,13 @@ enum VocabularyMerge {
     }
 
     static let minimumSimilarity = 0.65
+
+    /// The rescorer returns a term without the punctuation after it: put back the mark the model's
+    /// word ended with, or "director, Juan Rafia. As discussed" becomes "…Puan Rafia As discussed".
+    static func keepMark(of heard: String, on word: String) -> String {
+        guard let mark = heard.last, ".,!?;:".contains(mark), let end = word.last, !".,!?;:".contains(end) else { return word }
+        return word + String(mark)
+    }
 
     /// 1 − edit distance / longer length.
     static func similarity(_ a: String, _ b: String) -> Double {

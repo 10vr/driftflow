@@ -646,7 +646,7 @@ struct ModelStep: View {
         }
         let waitNote = Platform.hasAppleSpeech ? "You can dictate already: Apple's built-in model fills in until it's done." : "Dictation starts working when it's done."
         let name = settings.accuracyModel.displayName
-        if controller.accuracyReady { return "\(name) is ready: the most accurate English model, running on this Mac." }
+        if controller.accuracyReady { return "\(name) is ready: speech recognition that runs on this Mac." }
         if controller.accuracyProgress != nil, models.isDownloaded(settings.accuracyModel) {
             return "Loading \(name) onto the Neural Engine… a few seconds."
         }
@@ -655,7 +655,7 @@ struct ModelStep: View {
         }
         if case .failed(let message) = models.status(of: settings.accuracyModel) { return "Download failed: \(message)" }
         return Platform.hasAppleSpeech
-            ? "\(name) (\(settings.accuracyModel.downloadSize)) gives the most accurate English. Until it's ready, Apple's built-in model writes the text."
+            ? "\(name) (\(settings.accuracyModel.downloadSize)) is Driftflow's most accurate speech model. Until it's ready, Apple's built-in model writes the text."
             : "\(name) (\(settings.accuracyModel.downloadSize)) is the speech model Driftflow uses on this Mac. Download it to start dictating."
     }
 

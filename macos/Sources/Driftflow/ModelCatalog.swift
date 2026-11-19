@@ -1,9 +1,9 @@
 import FluidAudio
 import Foundation
 
-/// The model that writes the final text. (The live preview while you speak always comes from
-/// Apple's built-in speech model, which needs no download and streams instantly.)
+/// The model that writes the final text (and, by default, the live preview).
 enum AccuracyModel: String, CaseIterable, Identifiable {
+    case parakeetUltra
     case parakeetUnified
     case parakeetV2
     case parakeetV3
@@ -13,6 +13,7 @@ enum AccuracyModel: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
+        case .parakeetUltra: "Parakeet Ultra"
         case .parakeetUnified: "Parakeet Unified"
         case .parakeetV2: "Parakeet TDT v2"
         case .parakeetV3: "Parakeet TDT v3"
@@ -22,7 +23,8 @@ enum AccuracyModel: String, CaseIterable, Identifiable {
 
     var badge: String {
         switch self {
-        case .parakeetUnified: "Recommended"
+        case .parakeetUltra: "Recommended"
+        case .parakeetUnified: "English"
         case .parakeetV2: "Fastest"
         case .parakeetV3: "25 languages"
         case .apple: "Built in"
@@ -31,16 +33,20 @@ enum AccuracyModel: String, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
-        case .parakeetUnified: "Most accurate English model. NVIDIA, 0.6B parameters, runs on the Neural Engine."
+        case .parakeetUltra: "The best at everyday speech: it keeps the quiet, fast or mumbled words other models drop. English plus 24 European languages. NVIDIA Parakeet, further trained by Moondream."
+        case .parakeetUnified: "A touch more accurate on clear, read-aloud English, but can skip quiet or mumbled words. NVIDIA, 0.6B parameters."
         case .parakeetV2: "A few milliseconds faster, slightly less accurate. English only."
-        case .parakeetV3: "English plus 24 European languages: French, German, Spanish, Italian, Portuguese, Dutch, Polish, Russian…"
+        case .parakeetV3: "The model Parakeet Ultra was trained from. English plus 24 European languages: French, German, Spanish, Italian, Portuguese, Dutch, Polish, Russian…"
         case .apple: "No download. The same model that powers the live preview. Covers 50+ languages, including Malay."
         }
     }
 
-    /// Measured on this Mac (M5): 300 LibriSpeech recordings, 5,603 words, numbers normalized.
+    /// Measured on this Mac (M5): 300 LibriSpeech recordings, 5,603 words, numbers normalized:
+    /// clean read-aloud audiobooks, where Unified edges out Ultra. On everyday speech (121 clips of
+    /// calls, meetings and voice notes, Nov 2026) Unified dropped parts of 9 clips and Ultra none.
     var englishErrorRate: Double {
         switch self {
+        case .parakeetUltra: 2.98
         case .parakeetUnified: 2.55
         case .parakeetV2: 2.89
         case .parakeetV3: 2.96
@@ -54,6 +60,7 @@ enum AccuracyModel: String, CaseIterable, Identifiable {
 
     var medianMilliseconds: Int {
         switch self {
+        case .parakeetUltra: 47
         case .parakeetUnified: 51
         case .parakeetV2: 47
         case .parakeetV3: 46
@@ -64,13 +71,14 @@ enum AccuracyModel: String, CaseIterable, Identifiable {
     var languagesLabel: String {
         switch self {
         case .parakeetUnified, .parakeetV2: "English"
-        case .parakeetV3: "25 languages"
+        case .parakeetV3, .parakeetUltra: "25 languages"
         case .apple: "50+ languages"
         }
     }
 
     var downloadSize: String {
         switch self {
+        case .parakeetUltra: "615 MB"
         case .parakeetUnified: "590 MB"
         case .parakeetV2: "445 MB"
         case .parakeetV3: "470 MB"
@@ -88,12 +96,15 @@ enum AccuracyModel: String, CaseIterable, Identifiable {
         guard let language else { return false }
         switch self {
         case .parakeetUnified, .parakeetV2: return language == "en"
-        case .parakeetV3: return Self.v3Languages.contains(language)
+        case .parakeetV3, .parakeetUltra: return Self.v3Languages.contains(language)
         case .apple: return true
         }
     }
 
     var needsDownload: Bool { self != .apple }
+
+    /// Models whose text Driftflow corrects against your Vocabulary by sound (see `ParakeetEngine`).
+    var correctsVocabulary: Bool { self == .parakeetUltra || self == .parakeetUnified }
 }
 
 /// Tracks which Parakeet models are on disk, and downloads or deletes them.
@@ -164,6 +175,8 @@ final class ModelManager: ObservableObject {
                     _ = try await AsrModels.download(version: .v2, progressHandler: progress)
                 case .parakeetV3:
                     _ = try await AsrModels.download(version: .v3, progressHandler: progress)
+                case .parakeetUltra:
+                    _ = try await AsrModels.download(version: .ultra, progressHandler: progress)
                 case .parakeetUnified:
                     // Unified exposes download only through loading; load once, then let it go.
                     try await UnifiedAsrManager().loadModels(progressHandler: progress)
@@ -183,6 +196,20 @@ final class ModelManager: ObservableObject {
 
     private var downloadIDs: [AccuracyModel: UUID] = [:]
 
+    /// Loads a downloaded TDT model once and lets it go. The first load fits it to this Mac's Neural
+    /// Engine (macOS keeps the result), which can take a while; after this, loading it is quick.
+    func warmUp(_ model: AccuracyModel) async {
+        guard isDownloaded(model) else { return }
+        let version: AsrModelVersion
+        switch model {
+        case .parakeetUltra: version = .ultra
+        case .parakeetV3: version = .v3
+        case .parakeetV2: version = .v2
+        case .parakeetUnified, .apple: return
+        }
+        _ = try? await AsrModels.downloadAndLoad(version: version) // on disk already: loads only
+    }
+
     func cancelDownload(_ model: AccuracyModel) {
         downloads[model]?.cancel()
         downloads[model] = nil
@@ -190,9 +217,9 @@ final class ModelManager: ObservableObject {
         status[model] = Self.filesExist(for: model) ? .downloaded : .notDownloaded
     }
 
-    /// TDT v2 and v3 live in FluidAudio's shared model folder, which other apps built on it
+    /// TDT v2, v3 and Ultra live in FluidAudio's shared model folder, which other apps built on it
     /// (FluidVoice, for one) use too: deleting them here deletes their copy as well.
-    static func isShared(_ model: AccuracyModel) -> Bool { model == .parakeetV2 || model == .parakeetV3 }
+    static func isShared(_ model: AccuracyModel) -> Bool { [.parakeetV2, .parakeetV3, .parakeetUltra].contains(model) }
 
     func delete(_ model: AccuracyModel) {
         guard let directory = Self.directory(for: model) else { return }
@@ -216,6 +243,7 @@ final class ModelManager: ObservableObject {
         switch model {
         case .parakeetV2: AsrModels.defaultCacheDirectory(for: .v2)
         case .parakeetV3: AsrModels.defaultCacheDirectory(for: .v3)
+        case .parakeetUltra: AsrModels.defaultCacheDirectory(for: .ultra)
         case .parakeetUnified:
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("FluidAudio/Models/parakeet-unified-en-0.6b", isDirectory: true)
@@ -228,6 +256,7 @@ final class ModelManager: ObservableObject {
         switch model {
         case .parakeetV2: return AsrModels.modelsExist(at: directory, version: .v2)
         case .parakeetV3: return AsrModels.modelsExist(at: directory, version: .v3)
+        case .parakeetUltra: return AsrModels.modelsExist(at: directory, version: .ultra)
         case .parakeetUnified:
             let encoder = directory.appendingPathComponent(ModelNames.ParakeetUnified.offlineEncoderFile(precision: .int8))
             return FileManager.default.fileExists(atPath: encoder.path)
