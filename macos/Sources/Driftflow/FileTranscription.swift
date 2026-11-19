@@ -337,7 +337,15 @@ private final class AudioFileBlockReader: AudioBlockReader, @unchecked Sendable 
                 resampler.finish(into: &block)
                 break
             }
-            try file.read(into: buffer, frameCount: AVAudioFrameCount(min(Int64(chunk), remaining)))
+            do {
+                try file.read(into: buffer, frameCount: AVAudioFrameCount(min(Int64(chunk), remaining)))
+            } catch where remaining <= Int64(chunk) && file.framePosition > 0 {
+                // macOS's Ogg reader counts an Opus file's end padding as audio, then fails (with no
+                // error) reading those last few milliseconds, e.g. a WhatsApp voice note 20 ms short.
+                ended = true
+                resampler.finish(into: &block)
+                break
+            }
             guard buffer.frameLength > 0 else { // a truncated file can claim more frames than it has
                 ended = true
                 resampler.finish(into: &block)
