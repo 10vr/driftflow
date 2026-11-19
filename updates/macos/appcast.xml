@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.27</title>
+            <pubDate>Thu, 19 Nov 2026 10:17:31 GMT</pubDate>
+            <sparkle:version>202611191817</sparkle:version>
+            <sparkle:shortVersionString>0.2.27</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>WhatsApp voice notes that macOS couldn&#x27;t read to the very end now transcribe instead of failing with &quot;Foundation._GenericObjCError error 0&quot;.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.27/Driftflow-0.2.27-macOS.zip" type="application/octet-stream" sparkle:edSignature="Ma3shBI2MCCBH/W1CcfnujBMffzIHuxL4vZuS1c33BZZ8ruQI4FkRCoB4BVPMI4/urq0tlppRNm5OpZC0ZkoBQ==" length="17471857"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.26</title>
             <pubDate>Wed, 14 Oct 2026 14:30:29 GMT</pubDate>
             <sparkle:version>202610142229</sparkle:version>
