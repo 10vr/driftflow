@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.28</title>
+            <pubDate>Thu, 19 Nov 2026 18:19:45 GMT</pubDate>
+            <sparkle:version>202611200218</sparkle:version>
+            <sparkle:shortVersionString>0.2.28</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>Speech recognition upgraded: Parakeet Ultra is now the default. It catches more of what you say, even quiet, fast or mumbled speech. If you use Parakeet Unified or TDT v3, Driftflow downloads it in the background and switches over by itself; you can switch back any time in Settings › Models.</p><p>Vocabulary works with Parakeet Ultra, and a corrected name no longer loses the full stop or comma after it.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.28/Driftflow-0.2.28-macOS.zip" type="application/octet-stream" sparkle:edSignature="hczlujpDJr9m+AdBVBpvBuwYGBUGWW6FWoLRixJGPYcmx2iV7Nlb+eV1MqJoKc4kYG5S+tcKjJp+eVc1T826Dw==" length="17482828"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.27</title>
             <pubDate>Thu, 19 Nov 2026 10:17:31 GMT</pubDate>
             <sparkle:version>202611191817</sparkle:version>
