@@ -17,8 +17,8 @@ let package = Package(
         // (AI Styles and editing by voice). Pinned to a tested build.
         .binaryTarget(
             name: "llama",
-            url: "https://github.com/ggml-org/llama.cpp/releases/download/b11319/llama-b11319-xcframework.zip",
-            checksum: "f8f1460a8a8ba2ac6eb27f05ea9495a820bc9be2fc52d81ba0627faeb967c737"
+            url: "https://github.com/ggml-org/llama.cpp/releases/download/b12549/llama-b12549-xcframework.zip",
+            checksum: "8c87f76161bb1666e39686702744bb46f3945ce43b49d4be00d75b7001122f42"
         ),
         .executableTarget(
             name: "Driftflow",
