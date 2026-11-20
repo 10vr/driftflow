@@ -7,6 +7,15 @@
         <language>en</language>
         <!-- releases, newest first -->
         <item>
+            <title>Driftflow 0.2.29</title>
+            <pubDate>Fri, 20 Nov 2026 02:09:19 GMT</pubDate>
+            <sparkle:version>202611201008</sparkle:version>
+            <sparkle:shortVersionString>0.2.29</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>AI Styles and voice edits are 10-20% faster.</p>]]></description>
+            <enclosure url="https://github.com/10vr/driftflow/releases/download/v0.2.29/Driftflow-0.2.29-macOS.zip" type="application/octet-stream" sparkle:edSignature="7xDOOgIcNl4C2H1u8fFNEqs81mW+gJmLrXvoMYpGC2L5uaq2V6/yVDbM8HseNVBmRUSt1yN6P3ghGzETpoklBQ==" length="18247179"/>
+        </item>
+        <item>
             <title>Driftflow 0.2.28</title>
             <pubDate>Thu, 19 Nov 2026 18:19:45 GMT</pubDate>
             <sparkle:version>202611200218</sparkle:version>
